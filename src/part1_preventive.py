@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from reliability.Fitters import Fit_Everything
 from reliability.Distributions import (Lognormal_Distribution, Gamma_Distribution, Loglogistic_Distribution, Weibull_Distribution, Normal_Distribution, Exponential_Distribution, Gumbel_Distribution)
+from scipy.integrate import cumulative_trapezoid
+
 # Import data
 from import_data import load_data
 
@@ -20,7 +22,7 @@ def plot_failure_times(failure_times):
 
 def fit_distributions(failure_times):
     # Fitting distributions available in the reliability package to the data. Using MLE and best optimizer.
-    results = Fit_Everything(failures=failure_times, optimizer = 'best', sort_by='AICc', show_probability_plot = False, show_histogram_plot = False, show_PP_plot =False, show_best_distribution_probability_plot = False, print_results = True)
+    results = Fit_Everything(failures=failure_times, optimizer = 'best', sort_by='AICc', show_probability_plot = False, show_histogram_plot = False, show_PP_plot =False, show_best_distribution_probability_plot = False, print_results = False)
     # hist_plot = results.histogram_plot
     # hist_plot.savefig('Output/failure_times_fitted_histogram.png')
 
@@ -107,6 +109,134 @@ def distribution_analysis(failure_times, results, top_n=5):
     print(f"Visual comparison plot successfully saved to 'Output/top_contenders_pdf_cdf_comparison.png'.")
 
 
+def plot_hazard_functions(failure_times, results, top_n=5):
+    """
+    Automatically extracts the top N distributions from the results table, 
+    dynamically reconstructs them, and plots their Hazard Functions, h(t).
+    """
+    plt.figure(figsize=(10, 6))
+    
+    # Extend the time grid a bit further to see the hazard rate's future trajectory
+    t_grid = np.linspace(0, max(failure_times) + 50, 1000)
+    
+    # Comprehensive map of standard string names to actual classes and arguments
+    dist_mapping = {
+        'Gamma_3P': (Gamma_Distribution, ['alpha', 'beta', 'gamma']),
+        'Lognormal_3P': (Lognormal_Distribution, ['mu', 'sigma', 'gamma']),
+        'Lognormal_2P': (Lognormal_Distribution, ['mu', 'sigma']),
+        'Loglogistic_3P': (Loglogistic_Distribution, ['alpha', 'beta', 'gamma']),
+        'Weibull_3P': (Weibull_Distribution, ['alpha', 'beta', 'gamma']),
+        'Loglogistic_2P': (Loglogistic_Distribution, ['alpha', 'beta']),
+        'Gamma_2P': (Gamma_Distribution, ['alpha', 'beta']),
+        'Normal_2P': (Normal_Distribution, ['mu', 'sigma']),
+        'Weibull_2P': (Weibull_Distribution, ['alpha', 'beta']),
+        'Exponential_2P': (Exponential_Distribution, ['Lambda', 'gamma']),
+        'Gumbel_2P': (Gumbel_Distribution, ['mu', 'sigma']),
+        'Exponential_1P': (Exponential_Distribution, ['Lambda'])
+    }
+    
+    # Get TOP N distribution names from the sorted table
+    top_dist_names = results.results['Distribution'].head(top_n).tolist()
+    
+    # Reconstruct and plot the hazard functions
+    for name in top_dist_names:
+        if name in dist_mapping:
+            dist_class, param_names = dist_mapping[name]
+            
+            # Fetch parameters dynamically 
+            params = {p: getattr(results, f"{name}_{p}") for p in param_names}
+            model = dist_class(**params)
+            
+            # Plot the Hazard Function (HF)
+            # show_plot=False ensures it doesn't open a separate window
+            hf_values = model.HF(xvals=t_grid, show_plot=False)
+            plt.plot(t_grid, hf_values, label=name, linewidth=2.5)
+        else:
+            print(f"[Warning] '{name}' is in the top {top_n} but requires complex reconstruction. Skipping.")
+
+    # Formatting 
+    plt.xlabel('Time to Failure $t$ [flight cycles]', fontsize=12)
+    plt.ylabel('Hazard Rate $h(t)$', fontsize=12)
+    plt.title(f'Hazard Function Analysis (Top {top_n} Contenders)', fontsize=13, fontweight='bold')
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.legend(fontsize=10, loc='upper left')
+    
+    # Optional: Set a Y-limit if the Lognormal or Gamma hazard rates spike too aggressively at the tail
+    plt.ylim(bottom=0) 
+    
+    plt.tight_layout()
+    plt.savefig('Output/hazard_functions_comparison.png', dpi=300)
+    print(f"Hazard function plot successfully saved to 'Output/hazard_functions_comparison.png'.")
+
+
+def calculate_optimal_maintenance(model, Cp=10000, Cc=100000):
+    """
+    Numerically calculates the long-term average maintenance cost g(t) 
+    using the Renewal-Reward theorem and finds the optimal replacement time t*.
+    """
+    # 1. Create a high-resolution time grid from t=0 to t=400
+    t_grid = np.linspace(0, 400, 4000)
+    
+    # 2. Extract probability arrays from the chosen continuous model
+    # show_plot=False prevents the reliability package from generating extra plots
+    R_t = model.SF(xvals=t_grid, show_plot=False)
+    F_t = model.CDF(xvals=t_grid, show_plot=False)
+    
+    # 3. Calculate Expected Cycle Length (Denominator)
+    # Numerically integrate R(t) from 0 to t using the cumulative trapezoidal rule
+    expected_length = cumulative_trapezoid(R_t, t_grid, initial=0)
+    
+    # 4. Slice arrays to ignore t=0 (prevents division by zero errors)
+    t_eval = t_grid[1:]
+    R_eval = R_t[1:]
+    F_eval = F_t[1:]
+    len_eval = expected_length[1:]
+    
+    # 5. Calculate Long-Term Average Maintenance Cost g(t)
+    g_t = (Cp * R_eval + Cc * F_eval) / len_eval
+    
+    # 6. Find the optimal time t* and the corresponding minimum cost
+    min_idx = np.argmin(g_t)
+    t_opt = t_eval[min_idx]
+    cost_opt = g_t[min_idx]
+    
+    # ---------------------------------------------------------
+    # 7. Visualization
+    # ---------------------------------------------------------
+    plt.figure(figsize=(10, 6))
+    plt.plot(t_eval, g_t, label='Expected Cost $g(t)$', color='blue', linewidth=2.5)
+    
+    # Mark the optimal point
+    plt.plot(t_opt, cost_opt, 'ro', markersize=8, 
+             label=f'Optimal $t^* = {t_opt:.1f}$ cycles\nMin Cost = €{cost_opt:.2f}/cycle')
+    plt.axvline(x=t_opt, color='red', linestyle='--', alpha=0.6)
+    plt.axhline(y=cost_opt, color='red', linestyle='--', alpha=0.6)
+    
+    # Formatting
+    plt.xlabel('Preventive Replacement Time $t$ [flight cycles]', fontsize=12)
+    plt.ylabel('Long-Term Average Cost $g(t)$ [€ / cycle]', fontsize=12)
+    plt.title('Optimization of Age-Based Preventive Maintenance Policy', fontsize=13, fontweight='bold')
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.legend(fontsize=10, loc='upper right')
+    
+    # Limit the y-axis to focus on the 'elbow' of the curve rather than early infinity
+    plt.ylim(0, cost_opt * 4)
+    plt.xlim(0, max(t_eval))
+    
+    plt.tight_layout()
+    plt.savefig('Output/optimal_maintenance_cost.png', dpi=300)
+    
+    print("\n========================================================")
+    print("                MAINTENANCE OPTIMIZATION                  ")
+    print("========================================================")
+    print(f"Optimal preventive maintenance time: {t_opt:.2f} cycles.")
+    print(f"Minimum long-term average cost:    €{cost_opt:.2f} per cycle.")
+    print("Plot saved to 'Output/optimal_maintenance_cost.png'.")
+    print("========================================================\n")
+    
+    return t_opt, cost_opt
+
+
 
 def main():
     # 1. Load the data
@@ -123,10 +253,19 @@ def main():
     results = fit_distributions(failure_times)
 
     # 5. Analysis of best fitting distribution
-    distribution_analysis(failure_times, results, top_n=5)
+    top_n = 3
+    distribution_analysis(failure_times, results, top_n)
     
-    # 6. Implement your cost optimization function g(t) here
-    # ...
+    # 6. Plot hazard functions.
+    plot_hazard_functions(failure_times, results, top_n)
+
+    # 7. Calculating the optimal value of t and corresponding long term average maintenance cost
+    chosen_model = Gamma_Distribution(alpha=results.Gamma_3P_alpha, 
+                                        beta=results.Gamma_3P_beta, 
+                                        gamma=results.Gamma_3P_gamma)
+                                        
+    t_opt, cost_opt = calculate_optimal_maintenance(chosen_model, Cp=10000, Cc=100000)
+
 
 if __name__ == "__main__":
     main()
