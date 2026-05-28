@@ -90,16 +90,15 @@ def distribution_analysis(failure_times: np.ndarray, results: Any, top_n: int = 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
     # 1. Prepare Empirical Data
-    ax1.hist(failure_times, bins=15, density=True, alpha=0.3, color='grey', 
-             edgecolor='black', label='Empirical Data')
+    ax1.hist(failure_times, bins=15, density=True, alpha=0.3, color='grey', edgecolor='black', label='Empirical Data')
     
     sorted_failures = np.sort(failure_times)
     y_ecdf = np.arange(1, len(sorted_failures) + 1) / len(sorted_failures)
-    ax2.step(sorted_failures, y_ecdf, where='post', color='grey', 
-             linewidth=3, label='Empirical CDF')
+    ax2.step(sorted_failures, y_ecdf, where='post', color='grey', linewidth=3, label='Empirical CDF')
     
     # Dynamically scale time grid (prevent negative cycles)
-    min_time = max(0, min(failure_times) - 20)
+    # min_time = max(0, min(failure_times) - 20)
+    min_time = 0
     t_grid = np.linspace(min_time, max(failure_times) + 20, 1000)
     
     # 2. Reconstruct and plot the top contenders
