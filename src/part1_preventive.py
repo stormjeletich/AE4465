@@ -16,7 +16,7 @@ from import_data import load_data
 # =============================================================================
 # CONSTANTS & CONFIGURATION
 # =============================================================================
-OUTPUT_DIR = "Output"
+OUTPUT_DIR = os.path.join("Output", "part1")
 
 DIST_MAPPING = {
     'Gamma_3P': (Gamma_Distribution, ['alpha', 'beta', 'gamma']),

@@ -39,7 +39,7 @@ from import_data import load_data
 # CONFIGURATION & CONSTANTS
 # =============================================================================
 
-OUTPUT_DIR = "Output"
+OUTPUT_DIR = os.path.join("Output", "part2")
 RUL_CAP = 125  # Cap RUL at 125 cycles (healthy engines are difficult to predict)
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
