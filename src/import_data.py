@@ -2,6 +2,7 @@
 """
 Code for reading in the C-MAPSS data (FD001) 
 """
+import os
 import pandas as pd
 
 """
@@ -41,8 +42,14 @@ def load_data():
     # options to visualize the datadrame
     col_names =  index_names + operational_condition_names + sensor_names
 
-    df_train = pd.read_csv(r'C:\Users\Storm\OneDrive\Documenten\GitHub\AE4465\CMAPSSData\train_FD001.txt' ,  sep = ' ' , names=col_names, index_col = False,  usecols=range(len(col_names))) 
+    # Use repository-relative paths so the code runs regardless of user account
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    data_dir = os.path.join(base_dir, 'CMAPSSData')
 
-    df_test = pd.read_csv(r'C:\Users\Storm\OneDrive\Documenten\GitHub\AE4465\CMAPSSData\test_FD001.txt' , sep=' ' , names= col_names, index_col = False,  usecols=range(len(col_names)))
+    train_path = os.path.join(data_dir, 'train_FD001.txt')
+    test_path = os.path.join(data_dir, 'test_FD001.txt')
+
+    df_train = pd.read_csv(train_path, sep=' ', names=col_names, index_col=False, usecols=range(len(col_names)))
+    df_test = pd.read_csv(test_path, sep=' ', names=col_names, index_col=False, usecols=range(len(col_names)))
 
     return df_train, df_test

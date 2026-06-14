@@ -843,7 +843,12 @@ def main():
     # =========================================================================
     # STEP 8: Final Test Set Predictions (Section 7)
     # =========================================================================
-    rul_test_file = r'C:\Users\Storm\OneDrive\Documenten\GitHub\AE4465\CMAPSSData\RUL_FD001.txt'
+    # Use repository-relative paths for data and outputs
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    rul_test_file = os.path.join(base_dir, 'CMAPSSData', 'RUL_FD001.txt')
+    # Ensure outputs are stored in the repo-level Output/ directory
+    global OUTPUT_DIR
+    OUTPUT_DIR = os.path.join(base_dir, 'Output')
     test_results = predict_test_engines(best_model, df_test, df_test_features, rul_test_file)
     
     # =========================================================================
