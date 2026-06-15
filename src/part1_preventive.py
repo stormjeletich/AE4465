@@ -37,21 +37,54 @@ DIST_MAPPING = {
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
-def reconstruct_model(results: Any, dist_name: str) -> Optional[Any]:
+def reconstruct_model(results: Any, dist_name: str, x_support: Optional[np.ndarray] = None) -> Optional[Any]:
     """
     Fetches parameters from Fit_Everything results and returns the instantiated distribution.
+    For distribution variants that do not have a direct class mapping, this falls back to
+    interpolating the fitted parametric CDF samples stored on the Fit_Everything result.
     """
-    if dist_name not in DIST_MAPPING:
-        print(f"[Warning] '{dist_name}' requires complex reconstruction or is not mapped. Skipping.")
-        return None
-        
-    dist_class, param_names = DIST_MAPPING[dist_name]
-    params = {
-        p: getattr(results, f"{dist_name}_{'lambda' if p == 'Lambda' else p}") 
-        for p in param_names
-    }
-    
-    return dist_class(**params)
+    if dist_name in DIST_MAPPING:
+        dist_class, param_names = DIST_MAPPING[dist_name]
+        params = {
+            p: getattr(results, f"{dist_name}_{'lambda' if p == 'Lambda' else p}")
+            for p in param_names
+        }
+        return dist_class(**params)
+
+    cdf_attr = f"_parametric_CDF_{dist_name}"
+    if hasattr(results, cdf_attr):
+        support_cdf = np.asarray(getattr(results, cdf_attr), dtype=float)
+        support_x = np.asarray(x_support if x_support is not None else np.arange(len(support_cdf), dtype=float), dtype=float)
+
+        if support_x.shape[0] != support_cdf.shape[0]:
+            support_x = np.linspace(np.min(support_x), np.max(support_x), num=support_cdf.shape[0])
+
+        support_order = np.argsort(support_x)
+        support_x = support_x[support_order]
+        support_cdf = support_cdf[support_order]
+
+        class _CDFWrapper:
+            def CDF(self, xvals, show_plot=False):
+                xvals = np.asarray(xvals, dtype=float)
+                return np.interp(xvals, support_x, support_cdf, left=0.0, right=1.0)
+
+            def SF(self, xvals, show_plot=False):
+                return 1.0 - self.CDF(xvals=xvals, show_plot=show_plot)
+
+            def PDF(self, xvals, show_plot=False):
+                xvals = np.asarray(xvals, dtype=float)
+                cdf_values = self.CDF(xvals=xvals, show_plot=show_plot)
+                return np.gradient(cdf_values, xvals)
+
+            def HF(self, xvals, show_plot=False):
+                sf_values = self.SF(xvals=xvals, show_plot=show_plot)
+                pdf_values = self.PDF(xvals=xvals, show_plot=show_plot)
+                return np.divide(pdf_values, sf_values, out=np.zeros_like(pdf_values), where=sf_values > 0)
+
+        return _CDFWrapper()
+
+    print(f"[Warning] '{dist_name}' requires complex reconstruction or is not mapped. Skipping.")
+    return None
 
 
 def equal_width_bin_edges(values: np.ndarray, num_bins: int = 20) -> np.ndarray:
@@ -60,10 +93,24 @@ def equal_width_bin_edges(values: np.ndarray, num_bins: int = 20) -> np.ndarray:
     """
     return np.linspace(np.min(values), np.max(values), num_bins + 1)
 
+
+def load_top_distributions_from_criteria(criteria_path: str, top_n: int = 5) -> list[str]:
+    """
+    Read the ranked distribution names from the saved criteria table.
+    """
+    criteria_df = pd.read_csv(criteria_path)
+    return criteria_df.sort_values('Rank').head(top_n)['Distribution'].tolist()
+
 # =============================================================================
 # ANALYSIS FUNCTIONS
 # =============================================================================
-def plot_failure_times(failure_times: np.ndarray) -> None:
+def plot_failure_times(failure_times: np.ndarray, results: Any, top_n: int = 5) -> None:
+    criteria_path = f'{OUTPUT_DIR}/distribution_criteria.csv'
+    top_dist_names = load_top_distributions_from_criteria(criteria_path, top_n=top_n)
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    excluded_histogram_distributions = {'Lognormal_3P'}
+
+    fig, ax = plt.subplots(figsize=(10, 6))
     print(f"Extracted {len(failure_times)} engine failure lifetimes.")
     print(f"Min: {min(failure_times)}, Q1: {np.quantile(failure_times, 0.25, method='midpoint')}, "
           f"Median: {np.quantile(failure_times, 0.5, method='midpoint')}, "
@@ -71,12 +118,32 @@ def plot_failure_times(failure_times: np.ndarray) -> None:
     print(f"Mean: {np.mean(failure_times):.2f}, Std: {np.std(failure_times):.2f}")
     
     bin_edges = equal_width_bin_edges(failure_times, num_bins=20)
-    plt.hist(failure_times, bins=bin_edges, edgecolor='black')
-    plt.xlabel('Failure Time [cycles]')
-    plt.ylabel('Frequency of Engine Failure times [-]')
-    plt.title('Distribution of Engine Failure Times')
-    plt.savefig(f'{OUTPUT_DIR}/failure_times_histogram.png')
-    plt.close()
+    ax.hist(failure_times, bins=bin_edges, density=True, alpha=0.3, color='grey', edgecolor='black', label='Empirical Data')
+
+    t_grid = np.linspace(0, max(failure_times) + 20, 1000)
+    for idx, name in enumerate(top_dist_names):
+        if name in excluded_histogram_distributions:
+            continue
+
+        model = reconstruct_model(results, name, x_support=failure_times)
+        if not model:
+            continue
+
+        pdf_values = model.PDF(xvals=t_grid, show_plot=False)
+        color = colors[idx % len(colors)]
+        ax.plot(t_grid, pdf_values, label=name, linewidth=2, color=color)
+
+    ax.set_xlabel('Failure Time [cycles]')
+    ax.set_ylabel('Probability Density')
+    ax.set_title('Distribution of Engine Failure Times with Top 5 Fits')
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend(fontsize=10, loc='upper right')
+
+    fig.tight_layout()
+    fig.savefig(f'{OUTPUT_DIR}/figure_times_histogram.png', dpi=300, bbox_inches='tight')
+    fig.savefig(f'{OUTPUT_DIR}/failure_times_histogram.png', dpi=300, bbox_inches='tight')
+    print(f"Histogram plot successfully saved to '{OUTPUT_DIR}/figure_times_histogram.png'.")
+    plt.close(fig)
 
 
 def fit_distributions(failure_times: np.ndarray) -> Any:
@@ -107,7 +174,14 @@ def save_distribution_criteria_table(results: Any) -> pd.DataFrame:
     return table
 
 
-def distribution_analysis(failure_times: np.ndarray, results: Any, top_n: int = 5) -> None:
+def distribution_analysis(
+    failure_times: np.ndarray,
+    results: Any,
+    top_n: int = 5,
+    output_filename: str = 'top_contenders_pdf_cdf_comparison.png',
+    plot_label: str = 'Top Contenders',
+    exclude_distributions: Optional[list[str]] = None
+) -> None:
     """
     Automatically extracts the top N distributions from the results table, 
     dynamically reconstructs them, and plots both their PDFs and CDFs 
@@ -130,9 +204,13 @@ def distribution_analysis(failure_times: np.ndarray, results: Any, top_n: int = 
     
     # 2. Reconstruct and plot the top contenders
     top_dist_names = results.results['Distribution'].head(top_n).tolist()
+    exclude_set = set(exclude_distributions or [])
     
     for name in top_dist_names:
-        model = reconstruct_model(results, name)
+        if name in exclude_set:
+            continue
+
+        model = reconstruct_model(results, name, x_support=failure_times)
         if not model:
             continue
             
@@ -146,16 +224,16 @@ def distribution_analysis(failure_times: np.ndarray, results: Any, top_n: int = 
     for ax, title, ylabel in zip([ax1, ax2], ['PDF', 'CDF'], ['Probability Density $f(t)$', 'Cumulative Probability $F(t)$']):
         ax.set_xlabel('Time to Failure $t_f$ [flight cycles]', fontsize=12)
         ax.set_ylabel(ylabel, fontsize=12)
-        ax.set_title(f'{title} Comparison (Top {top_n} Contenders)', fontsize=13, fontweight='bold')
+        ax.set_title(f'{title} Comparison ({plot_label})', fontsize=13, fontweight='bold')
         ax.grid(True, linestyle='--', alpha=0.5)
         
     ax1.legend(fontsize=10, loc='upper left')
     ax2.legend(fontsize=10, loc='lower right')
     
     plt.tight_layout()
-    plt.savefig(f'{OUTPUT_DIR}/top_contenders_pdf_cdf_comparison.png', dpi=300)
+    plt.savefig(f'{OUTPUT_DIR}/{output_filename}', dpi=300)
     plt.savefig(f'{OUTPUT_DIR}/failure_times_fitted_histogram.png', dpi=300)
-    print(f"Visual comparison plot successfully saved to '{OUTPUT_DIR}/top_contenders_pdf_cdf_comparison.png'.")
+    print(f"Visual comparison plot successfully saved to '{OUTPUT_DIR}/{output_filename}'.")
     plt.close()
 
 
@@ -169,7 +247,7 @@ def plot_hazard_functions(failure_times: np.ndarray, results: Any, top_n: int = 
     top_dist_names = results.results['Distribution'].head(top_n).tolist()
     
     for name in top_dist_names:
-        model = reconstruct_model(results, name)
+        model = reconstruct_model(results, name, x_support=failure_times)
         if not model:
             continue
             
@@ -212,7 +290,7 @@ def compare_optimal_maintenance(failure_times: np.ndarray, results: Any, Cp: int
     minima = []
     
     for name in top_dist_names:
-        model = reconstruct_model(results, name)
+        model = reconstruct_model(results, name, x_support=failure_times)
         if not model:
             continue
             
@@ -293,8 +371,22 @@ def main():
     # 4. Analysis & Visualizations
     top_n = 5
     save_distribution_criteria_table(results)
-    # plot_failure_times(failure_times)
-    distribution_analysis(failure_times, results, top_n)
+    plot_failure_times(failure_times, results, top_n=top_n)
+    distribution_analysis(
+        failure_times,
+        results,
+        top_n=top_n,
+        output_filename='top_contenders_pdf_cdf_comparison.png',
+        plot_label=f'Top {top_n} Contenders'
+    )
+    distribution_analysis(
+        failure_times,
+        results,
+        top_n=len(results.results),
+        output_filename='all_distributions_pdf_cdf_comparison.png',
+        plot_label='All Fitted Distributions',
+        exclude_distributions=['Weibull_CR', 'Weibull_Mixture', 'Weibull_DS']
+    )
     plot_hazard_functions(failure_times, results, top_n)
 
     # Note: Updated this function call to pass failure_times for the dynamic grid
