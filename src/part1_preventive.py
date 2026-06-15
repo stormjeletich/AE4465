@@ -1,6 +1,7 @@
 import os
 from typing import Any, Optional
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from reliability.Fitters import Fit_Everything
 from reliability.Distributions import (
@@ -16,7 +17,7 @@ from import_data import load_data
 # =============================================================================
 # CONSTANTS & CONFIGURATION
 # =============================================================================
-OUTPUT_DIR = "Output"
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Output', 'part1'))
 
 DIST_MAPPING = {
     'Gamma_3P': (Gamma_Distribution, ['alpha', 'beta', 'gamma']),
@@ -52,6 +53,13 @@ def reconstruct_model(results: Any, dist_name: str) -> Optional[Any]:
     
     return dist_class(**params)
 
+
+def equal_width_bin_edges(values: np.ndarray, num_bins: int = 20) -> np.ndarray:
+    """
+    Build explicit equal-width bin edges for histogram plots.
+    """
+    return np.linspace(np.min(values), np.max(values), num_bins + 1)
+
 # =============================================================================
 # ANALYSIS FUNCTIONS
 # =============================================================================
@@ -62,7 +70,8 @@ def plot_failure_times(failure_times: np.ndarray) -> None:
           f"Q3: {np.quantile(failure_times, 0.75, method='midpoint')}, Max: {max(failure_times)}")
     print(f"Mean: {np.mean(failure_times):.2f}, Std: {np.std(failure_times):.2f}")
     
-    plt.hist(failure_times, bins=20, edgecolor='black')
+    bin_edges = equal_width_bin_edges(failure_times, num_bins=20)
+    plt.hist(failure_times, bins=bin_edges, edgecolor='black')
     plt.xlabel('Failure Time [cycles]')
     plt.ylabel('Frequency of Engine Failure times [-]')
     plt.title('Distribution of Engine Failure Times')
@@ -81,6 +90,23 @@ def fit_distributions(failure_times: np.ndarray) -> Any:
     return results
 
 
+def save_distribution_criteria_table(results: Any) -> pd.DataFrame:
+    """
+    Save the full ranking table for all fitted candidate distributions.
+    """
+    table = results.results[['Distribution', 'AICc', 'BIC', 'AD', 'Log-likelihood']].copy()
+    table.insert(0, 'Rank', np.arange(1, len(table) + 1))
+
+    output_path = f'{OUTPUT_DIR}/distribution_criteria.csv'
+    table.to_csv(output_path, index=False)
+
+    print("\nDistribution criteria table:")
+    print(table.to_string(index=False, justify='center'))
+    print(f"Criteria table saved to '{output_path}'.")
+
+    return table
+
+
 def distribution_analysis(failure_times: np.ndarray, results: Any, top_n: int = 5) -> None:
     """
     Automatically extracts the top N distributions from the results table, 
@@ -90,7 +116,8 @@ def distribution_analysis(failure_times: np.ndarray, results: Any, top_n: int = 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
     # 1. Prepare Empirical Data
-    ax1.hist(failure_times, bins=15, density=True, alpha=0.3, color='grey', edgecolor='black', label='Empirical Data')
+    bin_edges = equal_width_bin_edges(failure_times, num_bins=20)
+    ax1.hist(failure_times, bins=bin_edges, density=True, alpha=0.3, color='grey', edgecolor='black', label='Empirical Data')
     
     sorted_failures = np.sort(failure_times)
     y_ecdf = np.arange(1, len(sorted_failures) + 1) / len(sorted_failures)
@@ -127,6 +154,7 @@ def distribution_analysis(failure_times: np.ndarray, results: Any, top_n: int = 
     
     plt.tight_layout()
     plt.savefig(f'{OUTPUT_DIR}/top_contenders_pdf_cdf_comparison.png', dpi=300)
+    plt.savefig(f'{OUTPUT_DIR}/failure_times_fitted_histogram.png', dpi=300)
     print(f"Visual comparison plot successfully saved to '{OUTPUT_DIR}/top_contenders_pdf_cdf_comparison.png'.")
     plt.close()
 
@@ -166,7 +194,7 @@ def compare_optimal_maintenance(failure_times: np.ndarray, results: Any, Cp: int
     Dynamically reconstructs the top N distributions, calculates their long-term 
     average maintenance cost g(t), and compares their optimal replacement times.
     """
-    plt.figure(figsize=(12, 7))
+    fig, ax = plt.subplots(figsize=(12, 8))
     
     # Scale grid dynamically based on empirical maximum life
     max_time = max(failure_times) + 50
@@ -181,6 +209,7 @@ def compare_optimal_maintenance(failure_times: np.ndarray, results: Any, Cp: int
     print("-" * 67)
     
     max_cost_opt = 0 
+    minima = []
     
     for name in top_dist_names:
         model = reconstruct_model(results, name)
@@ -206,27 +235,44 @@ def compare_optimal_maintenance(failure_times: np.ndarray, results: Any, Cp: int
         if cost_opt > max_cost_opt:
             max_cost_opt = cost_opt
             
-        line, = plt.plot(t_eval, g_t, label=f'{name}', linewidth=2)
-        plt.plot(t_opt, cost_opt, marker='o', markersize=6, color=line.get_color())
+        line, = ax.plot(t_eval, g_t, label=f'{name}', linewidth=2)
+        ax.plot(t_opt, cost_opt, marker='o', markersize=7, color=line.get_color(), zorder=5)
+        minima.append((name, t_opt, cost_opt, line.get_color()))
         
         print(f"{name:<20} | {t_opt:>12.2f} cycles | € {cost_opt:>17.2f}")
 
     print("===================================================================\n")
 
-    plt.xlabel('Preventive Replacement Time $t$ [flight cycles]', fontsize=12)
-    plt.ylabel('Long-Term Average Cost $g(t)$ [€ / cycle]', fontsize=12)
-    plt.title(f'Cost Optimization Comparison: Top {top_n} Contenders', fontsize=13, fontweight='bold')
-    plt.grid(True, linestyle='--', alpha=0.5)
-    plt.legend(fontsize=10, loc='upper right')
+    for idx, (name, t_opt, cost_opt, color) in enumerate(minima):
+        # Same-color dashed crosshair over each minimum
+        ax.axvline(t_opt, color=color, linestyle='--', linewidth=1.3, alpha=0.75, zorder=1)
+        ax.axhline(cost_opt, color=color, linestyle='--', linewidth=1.3, alpha=0.75, zorder=1)
+
+    minima_df = pd.DataFrame(
+        [{
+            'Model': name,
+            't* (cycles)': round(float(t_opt), 2),
+            'g* (€/cycle)': round(float(cost_opt), 2)
+        } for name, t_opt, cost_opt, _ in minima]
+    )
+    minima_path = f'{OUTPUT_DIR}/comparative_maintenance_minima.csv'
+    minima_df.to_csv(minima_path, index=False)
+    print(f"Minimum-value table saved to '{minima_path}'.")
+
+    ax.set_xlabel('Preventive Replacement Time $t$ [flight cycles]', fontsize=12)
+    ax.set_ylabel('Long-Term Average Cost $g(t)$ [€ / cycle]', fontsize=12)
+    ax.set_title(f'Cost Optimization Comparison: Top {top_n} Contenders', fontsize=13, fontweight='bold')
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend(fontsize=10, loc='upper right')
     
-    plt.ylim(0, max_cost_opt * 3)
+    ax.set_ylim(0, max_cost_opt * 3)
     # Dynamically bind the x-axis to the logical range of the dataset instead of hardcoded 300
-    plt.xlim(0, max(failure_times)) 
+    ax.set_xlim(0, max(failure_times)) 
     
-    plt.tight_layout()
-    plt.savefig(f'{OUTPUT_DIR}/comparative_maintenance_cost.png', dpi=300)
+    fig.tight_layout()
+    fig.savefig(f'{OUTPUT_DIR}/comparative_maintenance_cost.png', dpi=300, bbox_inches='tight')
     print(f"Comparative cost plot successfully saved to '{OUTPUT_DIR}/comparative_maintenance_cost.png'.")
-    plt.close()
+    plt.close(fig)
 
 # =============================================================================
 # MAIN EXECUTION
@@ -246,6 +292,7 @@ def main():
 
     # 4. Analysis & Visualizations
     top_n = 5
+    save_distribution_criteria_table(results)
     # plot_failure_times(failure_times)
     distribution_analysis(failure_times, results, top_n)
     plot_hazard_functions(failure_times, results, top_n)

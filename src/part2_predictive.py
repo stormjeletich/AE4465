@@ -39,7 +39,7 @@ from import_data import load_data
 # CONFIGURATION & CONSTANTS
 # =============================================================================
 
-OUTPUT_DIR = "Output"
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Output', 'part2'))
 RUL_CAP = 125  # Cap RUL at 125 cycles (healthy engines are difficult to predict)
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
@@ -846,9 +846,6 @@ def main():
     # Use repository-relative paths for data and outputs
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     rul_test_file = os.path.join(base_dir, 'CMAPSSData', 'RUL_FD001.txt')
-    # Ensure outputs are stored in the repo-level Output/ directory
-    global OUTPUT_DIR
-    OUTPUT_DIR = os.path.join(base_dir, 'Output')
     test_results = predict_test_engines(best_model, df_test, df_test_features, rul_test_file)
     
     # =========================================================================
