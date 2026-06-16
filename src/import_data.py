@@ -41,8 +41,10 @@ def load_data():
     # options to visualize the datadrame
     col_names =  index_names + operational_condition_names + sensor_names
 
-    df_train = pd.read_csv(r'C:\Users\Storm\OneDrive\Documenten\GitHub\AE4465\CMAPSSData\train_FD001.txt' ,  sep = ' ' , names=col_names, index_col = False,  usecols=range(len(col_names))) 
+    # df_train = pd.read_csv(r'C:\Users\Storm\OneDrive\Documenten\GitHub\AE4465\CMAPSSData\train_FD001.txt' ,  sep = ' ' , names=col_names, index_col = False,  usecols=range(len(col_names))) 
 
-    df_test = pd.read_csv(r'C:\Users\Storm\OneDrive\Documenten\GitHub\AE4465\CMAPSSData\test_FD001.txt' , sep=' ' , names= col_names, index_col = False,  usecols=range(len(col_names)))
+    # df_test = pd.read_csv(r'C:\Users\Storm\OneDrive\Documenten\GitHub\AE4465\CMAPSSData\test_FD001.txt' , sep=' ' , names= col_names, index_col = False,  usecols=range(len(col_names)))
 
-    return df_train, df_test
+    df_train_philip = pd.read_csv(r'C:\Users\phili\Documents\TU Delft\MSc\Maintenance_and_modelling\AE4465\CMAPSSData\train_FD001.txt', sep=' ' , names= col_names, index_col = False,  usecols=range(len(col_names)))
+    df_test_philip = pd.read_csv(r'C:\Users\phili\Documents\TU Delft\MSc\Maintenance_and_modelling\AE4465\CMAPSSData\test_FD001.txt', sep=' ' , names= col_names, index_col = False,  usecols=range(len(col_names)))
+    return df_train_philip, df_test_philip
