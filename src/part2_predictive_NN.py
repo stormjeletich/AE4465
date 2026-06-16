@@ -18,7 +18,7 @@ from import_data import load_data
 OUTPUT_DIR   = "Output/part2_direct_lstm"
 RUL_CAP      = 125
 BATCH_SIZE   = 64
-TUNE_EPOCHS  = 25    # epochs per candidate during search
+TUNE_EPOCHS  = 50    # epochs per candidate during search
 FINAL_EPOCHS = 150   # epochs for the winning config
 LR           = 1e-3
 TRAIN_RATIO  = 0.8
@@ -31,6 +31,7 @@ SEARCH_SPACE = [
     for nl in [1, 2]
     for dr in [0.2, 0.3]
 ]
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
@@ -454,3 +455,8 @@ if __name__ == "__main__":
     ])
     summary.to_csv(os.path.join(OUTPUT_DIR, 'final_results.csv'), index=False)
     print(f"\nResults saved to {OUTPUT_DIR}/")
+
+
+    # Check for the Random forest
+
+  
