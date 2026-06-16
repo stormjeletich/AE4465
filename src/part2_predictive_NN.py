@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from part2_predictive import train_random_forest
 import matplotlib.pyplot as plt
-
+import time
 from import_data import load_data
 
 # =============================================================================
@@ -18,7 +18,7 @@ from import_data import load_data
 OUTPUT_DIR   = "Output/part2_direct_lstm"
 RUL_CAP      = 125
 BATCH_SIZE   = 64
-TUNE_EPOCHS  = 50    # epochs per candidate during search
+TUNE_EPOCHS  = 25    # epochs per candidate during search
 FINAL_EPOCHS = 150   # epochs for the winning config
 LR           = 1e-3
 TRAIN_RATIO  = 0.8
@@ -33,9 +33,14 @@ SEARCH_SPACE = [
 ]
 
 
+FORCE_CFG = {'seq_len': 50, 'hidden_size': 64, 'num_layers': 1, 'dropout': 0.3}
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
+torch.manual_seed(42)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(42)
 # =============================================================================
 # 1. DATA PREPARATION
 # =============================================================================
@@ -163,9 +168,9 @@ class RULPredictor(nn.Module):
 def train(model, train_loader, val_loader, n_epochs=FINAL_EPOCHS, verbose=True):
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-3)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=10
-    )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-5)
+    
+    
 
     best_val_rmse = float('inf')
     best_weights  = None
@@ -273,6 +278,10 @@ def tune_hyperparameters(df_train_raw, df_val_raw, df_test_raw):
         'dropout':     float(best['dropout']),
     }
     print(f"\nBest config: {best_cfg}  (val RMSE {best['val_rmse']:.2f})")
+
+    if FORCE_CFG is not None:
+        print(f"\nOverriding grid search winner with FORCE_CFG: {FORCE_CFG}")
+        best_cfg = FORCE_CFG
     return best_cfg
 
 
@@ -310,7 +319,7 @@ def plot_training_curves(history: dict):
     plt.grid(True, alpha=0.2, linestyle='--')
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, 'training_curves.png'), dpi=200)
-    plt.show()
+    # plt.show()
 
 
 def plot_rul_predictions(rul_truth: np.ndarray, preds: np.ndarray):
@@ -328,7 +337,7 @@ def plot_rul_predictions(rul_truth: np.ndarray, preds: np.ndarray):
     plt.grid(True, alpha=0.2, linestyle='--')
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, 'rul_predictions.png'), dpi=300)
-    plt.show()
+    # plt.show()
 
 
 def plot_hparam_search(csv_path: str):
@@ -341,7 +350,7 @@ def plot_hparam_search(csv_path: str):
     plt.title(f'Hyperparameter Search — {len(df)} configs × {TUNE_EPOCHS} epochs')
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, 'hparam_search.png'), dpi=200)
-    plt.show()
+    # plt.show()
 
 
 # =============================================================================
@@ -374,9 +383,12 @@ if __name__ == "__main__":
 
     model = RULPredictor(num_features, best_cfg['hidden_size'],
                          best_cfg['num_layers'], best_cfg['dropout']).to(device)
-
+    
+    # Start timer for comparison with Random Forest baseline
+    lstm_start = time.time()
     model, history, _ = train(model, train_loader, val_loader,
                                n_epochs=FINAL_EPOCHS, verbose=True)
+    lstm_time = time.time() - lstm_start
 
     plot_training_curves(history)
     plot_hparam_search(os.path.join(OUTPUT_DIR, 'hparam_search.csv'))
@@ -406,10 +418,13 @@ if __name__ == "__main__":
     X_val_flat  = X_val[:, -1, :]
     X_test_flat = X_test[:, -1, :]
 
+
+    rf_start = time.time()
     rf_model, _ = train_random_forest(X_tr_flat, y_tr, X_val_flat, y_val)
     rf_preds     = np.clip(rf_model.predict(X_test_flat), 0, RUL_CAP)
     rf_rmse      = np.sqrt(mean_squared_error(rul_truth, rf_preds))
     rf_mae       = mean_absolute_error(rul_truth, rf_preds)
+    rf_time      = time.time() - rf_start
     print(f"\nRandom Forest — Test RMSE: {rf_rmse:.3f}   MAE: {rf_mae:.3f}")
 
     # Comparison plot & summary table 
@@ -446,7 +461,7 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_DIR, 'model_comparison.png'), dpi=200)
-    plt.show()
+    # plt.show()
 
     # Save summary
     summary = pd.DataFrame([
@@ -455,6 +470,7 @@ if __name__ == "__main__":
     ])
     summary.to_csv(os.path.join(OUTPUT_DIR, 'final_results.csv'), index=False)
     print(f"\nResults saved to {OUTPUT_DIR}/")
+    print(f"\nTraining time — LSTM: {lstm_time:.1f}s   RF: {rf_time:.1f}s")
 
 
     # Check for the Random forest
