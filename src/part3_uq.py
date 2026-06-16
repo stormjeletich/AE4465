@@ -69,15 +69,12 @@ def preprocess_data(df_train: pd.DataFrame, df_test: pd.DataFrame):
     
     # Load true RUL test labels
     try:
-        # Check standard root-level path (if running from the main repo folder)
         rul_path = 'CMAPSSData/RUL_FD001.txt' 
         if not os.path.exists(rul_path):
-            # Fallback relative path (if running directly from inside the src folder)
             rul_path = '../CMAPSSData/RUL_FD001.txt' 
             
         true_rul = pd.read_csv(rul_path, sep=r'\s+', header=None, names=['RUL'])
         y_test = true_rul['RUL'].values
-        # Cap test RUL to ensure consistent evaluation metrics
         y_test = np.minimum(y_test, RUL_CAP)
     except FileNotFoundError:
         raise FileNotFoundError(f"Could not find RUL_FD001.txt! Looked in: {rul_path}")
@@ -122,7 +119,6 @@ def train_model(model, X, y, epochs=40, batch_size=256, seed=42):
     """Handles the PyTorch training loop."""
     torch.manual_seed(seed)
     
-    # Convert numpy arrays to PyTorch tensors
     X_tensor = torch.FloatTensor(X)
     y_tensor = torch.FloatTensor(y).view(-1, 1)
     
@@ -132,7 +128,7 @@ def train_model(model, X, y, epochs=40, batch_size=256, seed=42):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     
-    model.train() # Set to training mode
+    model.train()
     for epoch in range(epochs):
         for batch_X, batch_y in loader:
             optimizer.zero_grad()
@@ -152,8 +148,6 @@ def mc_dropout_predict(model, X_test, num_passes=30):
     """Generates predictions via stochastic forward passes."""
     print(f"Running {num_passes} stochastic forward passes for MC Dropout...")
     
-    # CRITICAL: We explicitly set model.train() here to force PyTorch 
-    # to keep Dropout layers active during inference.
     model.train() 
     X_tensor = torch.FloatTensor(X_test)
     predictions = []
@@ -175,17 +169,27 @@ def mc_dropout_predict(model, X_test, num_passes=30):
 # ============================================================================
 
 def train_deep_ensemble(X_train, y_train, input_dim, n_models=5):
-    """Trains an ensemble of MLPs, each with a different random initialization."""
+    """Trains an ensemble of MLPs using Bootstrap Sampling for diversity."""
     ensemble = []
     print("\n" + "-"*70)
-    print(f"METHOD 2: TRAINING DEEP ENSEMBLE ({n_models} Neural Networks)")
-    print("-"*70)
+    print(f"METHOD 2: TRAINING DEEP ENSEMBLE ({n_models} Networks with Bootstrapping)")
+    print("-" * 70)
+    
+    n_train = len(X_train)
     
     for i in range(n_models):
         print(f"Training Network {i+1}/{n_models}...")
+        seed_val = (i + 1) * 100
+        torch.manual_seed(seed_val)
+        np.random.seed(seed_val)
+        
+        # Bootstrapping for ensemble diversity
+        indices = np.random.choice(n_train, size=n_train, replace=True)
+        X_boot = X_train[indices]
+        y_boot = y_train[indices]
+        
         model = RULNet(input_dim, use_dropout=False)
-        # Multiply seed by 100 to ensure distinct initialization trajectories
-        model = train_model(model, X_train, y_train, epochs=40, seed=(i+1)*100)
+        model = train_model(model, X_boot, y_boot, epochs=40, seed=seed_val)
         ensemble.append(model)
         
     return ensemble
@@ -199,7 +203,7 @@ def deep_ensemble_predict(ensemble, X_test):
     
     with torch.no_grad():
         for model in ensemble:
-            model.eval() # Set to evaluation mode
+            model.eval()
             pred = model(X_tensor).numpy().flatten()
             predictions.append(pred)
             
@@ -219,7 +223,7 @@ def compute_rmse(y_true, y_pred):
 
 def compute_nll(y_true, y_pred_mean, y_pred_var):
     """Computes Negative Log-Likelihood assuming a Gaussian distribution."""
-    y_pred_var = np.maximum(y_pred_var, 1e-6)  # Avoid division by zero
+    y_pred_var = np.maximum(y_pred_var, 1e-6)
     nll = 0.5 * np.log(2 * np.pi * y_pred_var) + 0.5 * ((y_true - y_pred_mean) ** 2) / y_pred_var
     return np.mean(nll)
 
@@ -230,9 +234,7 @@ def compute_calibration_curve(y_true, y_pred_mean, y_pred_std, confidence_levels
     
     observed_confidence = []
     for conf in confidence_levels:
-        # Two-tailed Z-score
         z_score = np.abs(np.percentile(np.random.randn(100000), 100 * (1 - conf) / 2))
-        
         lower_bound = y_pred_mean - z_score * y_pred_std
         upper_bound = y_pred_mean + z_score * y_pred_std
         
@@ -248,8 +250,7 @@ def compute_calibration_curve(y_true, y_pred_mean, y_pred_std, confidence_levels
 # ============================================================================
 
 def main():
-    if not os.path.exists('Output'):
-        os.makedirs('Output')
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     print("\n" + "="*70)
     print("PART 3: UNCERTAINTY QUANTIFICATION FOR RUL PREDICTION (PYTORCH)")
@@ -261,7 +262,7 @@ def main():
     X_train, X_test, y_train, y_test = preprocess_data(df_train, df_test)
     input_dim = X_train.shape[1]
     
-    # 2. MC Dropout Training and Inference
+    # 2. MC Dropout
     print("\n" + "-"*70)
     print("METHOD 1: MONTE CARLO (MC) DROPOUT")
     print("-" * 70)
@@ -270,12 +271,26 @@ def main():
     mc_model = train_model(mc_model, X_train, y_train, epochs=40, seed=42)
     
     mc_mean, mc_var, mc_std = mc_dropout_predict(mc_model, X_test, num_passes=30)
+    
+    # Add Aleatoric Noise to MC Dropout (Missing piece for true total variance)
+    mc_train_mean, _, _ = mc_dropout_predict(mc_model, X_train, num_passes=30)
+    mc_aleatoric_var = mean_squared_error(y_train, mc_train_mean)
+    mc_var = mc_var + mc_aleatoric_var
+    mc_std = np.sqrt(mc_var)
+    
     mc_rmse = compute_rmse(y_test, mc_mean)
     mc_nll = compute_nll(y_test, mc_mean, mc_var)
     
-    # 3. Deep Ensemble Training and Inference
+    # 3. Deep Ensemble
     de_ensemble = train_deep_ensemble(X_train, y_train, input_dim, n_models=5)
     de_mean, de_var, de_std = deep_ensemble_predict(de_ensemble, X_test)
+    
+    # Add Aleatoric Noise to Deep Ensemble
+    de_train_mean, _, _ = deep_ensemble_predict(de_ensemble, X_train)
+    de_aleatoric_var = mean_squared_error(y_train, de_train_mean)
+    de_var = de_var + de_aleatoric_var
+    de_std = np.sqrt(de_var)
+    
     de_rmse = compute_rmse(y_test, de_mean)
     de_nll = compute_nll(y_test, de_mean, de_var)
     
@@ -294,11 +309,11 @@ def main():
     print(f"{'Negative Log-Likelihood':<30} {mc_nll:<20.4f} {de_nll:<20.4f}")
     print(f"{'Mean Uncertainty (Std Dev)':<30} {np.mean(mc_std):<20.4f} {np.mean(de_std):<20.4f}")
     
-    # 6. Plotting
+    # 6. Plotting (3-Panel Layout)
     print("\nGenerating comparison plots...")
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    fig, axes = plt.subplots(1, 3, figsize=(22, 6))
     
-    # Plot A: Calibration Curves
+    # Plot A: Calibration Curves (Comparison)
     ax1 = axes[0]
     ax1.plot([0, 1], [0, 1], 'k--', label='Ideal (Perfect Calibration)', linewidth=2)
     ax1.plot(mc_conf_levels, mc_obs_conf, 'o-', color='purple', label='MC Dropout', linewidth=2)
@@ -309,28 +324,40 @@ def main():
     ax1.legend(fontsize=11)
     ax1.grid(alpha=0.3)
     
-    # Plot B: Predictions vs. Ground Truth with Uncertainty Bounds
-    ax2 = axes[1]
+    # Shared setup for Prediction Plots
     sorted_idx = np.argsort(y_test)
     test_indices = np.arange(len(y_test))
     
+    # Plot B: MC Dropout Predictions
+    ax2 = axes[1]
     ax2.scatter(test_indices, y_test[sorted_idx], color='black', label='Ground Truth', s=15, zorder=5)
-    
-    # Deep Ensemble Plotting
-    ax2.plot(test_indices, de_mean[sorted_idx], '-', color='orange', label='Ensemble Mean', linewidth=1.5)
+    ax2.plot(test_indices, mc_mean[sorted_idx], '-', color='purple', label='MC Mean', linewidth=1.5)
     ax2.fill_between(test_indices, 
+                     mc_mean[sorted_idx] - mc_std[sorted_idx], 
+                     mc_mean[sorted_idx] + mc_std[sorted_idx], 
+                     alpha=0.3, color='purple', label='MC ±1σ')
+    ax2.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=12)
+    ax2.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
+    ax2.set_title('MC Dropout: Predictions vs Ground Truth', fontsize=13, fontweight='bold')
+    ax2.legend(fontsize=9, loc='upper left')
+    ax2.grid(alpha=0.3)
+
+    # Plot C: Deep Ensemble Predictions
+    ax3 = axes[2]
+    ax3.scatter(test_indices, y_test[sorted_idx], color='black', label='Ground Truth', s=15, zorder=5)
+    ax3.plot(test_indices, de_mean[sorted_idx], '-', color='orange', label='Ensemble Mean', linewidth=1.5)
+    ax3.fill_between(test_indices, 
                      de_mean[sorted_idx] - de_std[sorted_idx], 
                      de_mean[sorted_idx] + de_std[sorted_idx], 
                      alpha=0.3, color='orange', label='Ensemble ±1σ')
-    
-    ax2.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=12)
-    ax2.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
-    ax2.set_title('Predictions vs Ground Truth', fontsize=13, fontweight='bold')
-    ax2.legend(fontsize=9, loc='upper left')
-    ax2.grid(alpha=0.3)
+    ax3.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=12)
+    ax3.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
+    ax3.set_title('Deep Ensemble: Predictions vs Ground Truth', fontsize=13, fontweight='bold')
+    ax3.legend(fontsize=9, loc='upper left')
+    ax3.grid(alpha=0.3)
     
     plt.tight_layout()
-    output_path = f'{OUTPUT_DIR}/uq_predictions_vs_truth.png'
+    output_path = os.path.join(OUTPUT_DIR, 'uq_calibration_comparison.png')
     plt.savefig(output_path, dpi=300)
     print(f"Plot saved successfully to: {output_path}")
 
