@@ -1,0 +1,6 @@
+Model,t* (cycles),g* (€/cycle)
+Gamma_3P,128.06,80.68
+Lognormal_3P,128.06,81.85
+Lognormal_2P,122.5,88.61
+Loglogistic_3P,127.03,84.2
+Weibull_3P,127.34,79.27
