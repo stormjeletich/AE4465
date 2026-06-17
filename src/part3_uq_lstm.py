@@ -19,11 +19,12 @@ from import_data import load_data
 #==========================
 OUTPUT_DIR = "Output/part3copy"
 RUL_CAP = 125
-FINAL_EPOCHS = 30
-N_DE_MODELS = 3  # Number of models in the Deep Ensemble
+MC_DROPOUT_PASSES = 50
+FINAL_EPOCHS = 100
+N_DE_MODELS = 6  # Number of models in the Deep Ensemble
 
-# Use the winning configuration from Part 2
-BEST_CFG = {'seq_len': 50, 'hidden_size': 64, 'num_layers': 1, 'dropout': 0.3}
+# The winning configuration from Part 2
+BEST_CFG = {'seq_len': 50, 'hidden_size': 64, 'num_layers': 1, 'dropout': 0.2}
 
 
 # =========================================
@@ -31,11 +32,11 @@ BEST_CFG = {'seq_len': 50, 'hidden_size': 64, 'num_layers': 1, 'dropout': 0.3}
 # =========================================
 
 
-def mc_dropout_lstm_predict(model, X_test_windows, num_passes=30, batch_size=64):
+def mc_dropout_lstm_predict(model, X_test_windows, num_passes=MC_DROPOUT_PASSES, batch_size=BATCH_SIZE):
     """Generates MC Dropout predictions for LSTM."""
     print(f"Running {num_passes} stochastic forward passes for MC Dropout...")
     
-    # CRITICAL: Force the model into training mode to keep Dropout active
+    # To force the model into training mode to keep Dropout active
     model.train() 
     
     # Convert numpy array to tensor and create a DataLoader for memory safety
@@ -96,7 +97,7 @@ def train_lstm_ensemble(X_tr, y_tr, X_val, y_val, best_cfg, num_features, n_mode
                              num_layers=best_cfg['num_layers'], 
                              dropout=best_cfg['dropout']).to(device)
                              
-        # Using your exact train() function from Part 2
+        # Using train() function from Part 2
         model, _, _ = train(model, tr_loader, vl_loader, n_epochs=FINAL_EPOCHS, verbose=False)
         ensemble.append(model)
         
@@ -170,57 +171,67 @@ def compute_calibration_curve(y_true, y_pred_mean, y_pred_std, confidence_levels
 # plottig
 #=======================================
 
-def plot_calibration_curve(y_test, mc_mean, mc_std, mc_conf_levels, mc_obs_conf, de_mean, de_std, de_conf_levels, de_obs_conf):
-    print("\nGenerating comparison plots...")
-    fig, axes = plt.subplots(1, 3, figsize=(22, 6))
+def plot_calibration_curves(mc_conf_levels, mc_obs_conf, de_conf_levels, de_obs_conf):
+    print("\nGenerating Calibration Curve plot...")
+    fig, ax = plt.subplots(figsize=(8, 6))
     
-    # Plot A: Calibration Curves (Comparison)
-    ax1 = axes[0]
-    ax1.plot([0, 1], [0, 1], 'k--', label='Ideal (Perfect Calibration)', linewidth=2)
-    ax1.plot(mc_conf_levels, mc_obs_conf, 'o-', color='purple', label='MC Dropout', linewidth=2)
-    ax1.plot(de_conf_levels, de_obs_conf, 's-', color='orange', label='Deep Ensemble', linewidth=2)
-    ax1.set_xlabel('Expected Confidence (%)', fontsize=12)
-    ax1.set_ylabel('Observed Confidence (%)', fontsize=12)
-    ax1.set_title('Calibration Curve Comparison', fontsize=13, fontweight='bold')
-    ax1.legend(fontsize=11)
-    ax1.grid(alpha=0.3)
+    ax.plot([0, 1], [0, 1], 'k--', label='Ideal (Perfect Calibration)', linewidth=2)
+    ax.plot(mc_conf_levels, mc_obs_conf, 'o-', color='purple', label='MC Dropout', linewidth=2)
+    ax.plot(de_conf_levels, de_obs_conf, 's-', color='orange', label='Deep Ensemble', linewidth=2)
+    
+    ax.set_xlabel('Expected Confidence (%)', fontsize=12)
+    ax.set_ylabel('Observed Confidence (%)', fontsize=12)
+    ax.set_title('Calibration Curve Comparison', fontsize=13, fontweight='bold')
+    ax.legend(fontsize=11)
+    ax.grid(alpha=0.3)
+    
+    plt.tight_layout()
+    output_path = os.path.join(OUTPUT_DIR, 'uq_calibration_curves.png')
+    plt.savefig(output_path, dpi=300)
+    print(f"Calibration plot saved successfully to: {output_path}")
+    
+    
+def plot_uq_predictions(y_test, mc_mean, mc_std, de_mean, de_std):
+    print("\nGenerating Prediction comparison plots...")
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     
     # Shared setup for Prediction Plots
     sorted_idx = np.argsort(y_test)
     test_indices = np.arange(len(y_test))
     
-    # Plot B: MC Dropout Predictions
+    # Plot A: MC Dropout Predictions
+    ax1 = axes[0]
+    ax1.scatter(test_indices, y_test[sorted_idx], color='black', label='Ground Truth', s=15, zorder=5)
+    ax1.plot(test_indices, mc_mean[sorted_idx], '-', color='purple', label='MC Mean', linewidth=1.5)
+    ax1.fill_between(test_indices, 
+                    mc_mean[sorted_idx] - mc_std[sorted_idx], 
+                    mc_mean[sorted_idx] + mc_std[sorted_idx], 
+                    alpha=0.3, color='purple', label='MC ±1σ')
+    ax1.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=12)
+    ax1.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
+    ax1.set_title('MC Dropout: Predictions vs Ground Truth', fontsize=13, fontweight='bold')
+    ax1.legend(fontsize=9, loc='upper left')
+    ax1.grid(alpha=0.3)
+
+    # Plot B: Deep Ensemble Predictions
     ax2 = axes[1]
     ax2.scatter(test_indices, y_test[sorted_idx], color='black', label='Ground Truth', s=15, zorder=5)
-    ax2.plot(test_indices, mc_mean[sorted_idx], '-', color='purple', label='MC Mean', linewidth=1.5)
+    ax2.plot(test_indices, de_mean[sorted_idx], '-', color='orange', label='Ensemble Mean', linewidth=1.5)
     ax2.fill_between(test_indices, 
-                     mc_mean[sorted_idx] - mc_std[sorted_idx], 
-                     mc_mean[sorted_idx] + mc_std[sorted_idx], 
-                     alpha=0.3, color='purple', label='MC ±1σ')
+                    de_mean[sorted_idx] - de_std[sorted_idx], 
+                    de_mean[sorted_idx] + de_std[sorted_idx], 
+                    alpha=0.3, color='orange', label='Ensemble ±1σ')
     ax2.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=12)
     ax2.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
-    ax2.set_title('MC Dropout: Predictions vs Ground Truth', fontsize=13, fontweight='bold')
+    ax2.set_title('Deep Ensemble: Predictions vs Ground Truth', fontsize=13, fontweight='bold')
     ax2.legend(fontsize=9, loc='upper left')
     ax2.grid(alpha=0.3)
-
-    # Plot C: Deep Ensemble Predictions
-    ax3 = axes[2]
-    ax3.scatter(test_indices, y_test[sorted_idx], color='black', label='Ground Truth', s=15, zorder=5)
-    ax3.plot(test_indices, de_mean[sorted_idx], '-', color='orange', label='Ensemble Mean', linewidth=1.5)
-    ax3.fill_between(test_indices, 
-                     de_mean[sorted_idx] - de_std[sorted_idx], 
-                     de_mean[sorted_idx] + de_std[sorted_idx], 
-                     alpha=0.3, color='orange', label='Ensemble ±1σ')
-    ax3.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=12)
-    ax3.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
-    ax3.set_title('Deep Ensemble: Predictions vs Ground Truth', fontsize=13, fontweight='bold')
-    ax3.legend(fontsize=9, loc='upper left')
-    ax3.grid(alpha=0.3)
     
     plt.tight_layout()
-    output_path = os.path.join(OUTPUT_DIR, 'uq_calibration_comparison.png')
+    output_path = os.path.join(OUTPUT_DIR, 'uq_predictions_comparison.png')
     plt.savefig(output_path, dpi=300)
-    print(f"Plot saved successfully to: {output_path}")
+    print(f"Predictions plot saved successfully to: {output_path}")
+    
 
 
 
@@ -263,10 +274,10 @@ def main():
     mc_model = RULPredictor(num_features, BEST_CFG['hidden_size'], BEST_CFG['num_layers'], BEST_CFG['dropout']).to(device)
     mc_model, _, _ = train(mc_model, tr_loader, vl_loader, n_epochs=FINAL_EPOCHS, verbose=True)
     
-    mc_mean, mc_var = mc_dropout_lstm_predict(mc_model, X_test, num_passes=30)
+    mc_mean, mc_var = mc_dropout_lstm_predict(mc_model, X_test, num_passes=MC_DROPOUT_PASSES)
     
     # Add Aleatoric Noise
-    mc_train_mean, _ = mc_dropout_lstm_predict(mc_model, X_tr, num_passes=30)
+    mc_train_mean, _ = mc_dropout_lstm_predict(mc_model, X_tr, num_passes=MC_DROPOUT_PASSES)
     mc_aleatoric_var = mean_squared_error(y_tr, mc_train_mean)
     mc_var = mc_var + mc_aleatoric_var
     mc_std = np.sqrt(mc_var)
@@ -304,8 +315,9 @@ def main():
     mc_conf_levels, mc_obs_conf = compute_calibration_curve(rul_truth, mc_mean, mc_std)
     de_conf_levels, de_obs_conf = compute_calibration_curve(rul_truth, de_mean, de_std)
     
-    # (PASTE YOUR 3-PANEL MATPLOTLIB PLOTTING CODE HERE)
-    plot_calibration_curve(rul_truth, mc_mean, mc_std, mc_conf_levels, mc_obs_conf, de_mean, de_std, de_conf_levels, de_obs_conf)
+    # Plotting
+    plot_calibration_curves(mc_conf_levels, mc_obs_conf, de_conf_levels, de_obs_conf)
+    plot_uq_predictions(rul_truth, mc_mean, mc_std, de_mean, de_std)
 
 if __name__ == "__main__":
     main()
