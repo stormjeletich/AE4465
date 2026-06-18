@@ -22,7 +22,7 @@ OUTPUT_DIR = "Output/part3"
 RUL_CAP = 125
 MC_DROPOUT_PASSES = 40
 FINAL_EPOCHS = 150
-EPOCHS_DE = 100 
+EPOCHS_DE = 150 
 N_DE_MODELS = 6  # Number of models in the Deep Ensemble
 MAX_DE_MODELS = 12  # For DE elbow method
 MAX_MC_PASSES = 100  # For MC elbow method
@@ -189,8 +189,6 @@ def plot_de_elbow(de_ensemble, X_val, y_val, current_models=N_DE_MODELS):
     for the optimal number of Deep Ensemble models.
     """
     max_models = len(de_ensemble)
-    print(f"\nCalculating Deep Ensemble Elbow (RMSE) up to {max_models} models...")
-    
     b_values = np.arange(2, max_models + 1)
     rmse_values = []
     
@@ -290,8 +288,8 @@ def plot_calibration_curves(mc_conf_levels, mc_obs_conf, de_conf_levels, de_obs_
 
   
 def plot_uq_predictions(y_test, mc_mean, mc_std, de_mean, de_std):
-    print("\nGenerating Prediction comparison plots...")
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), sharey=True)
     
     # Shared setup for Prediction Plots
     sorted_idx = np.argsort(y_test)
@@ -305,11 +303,13 @@ def plot_uq_predictions(y_test, mc_mean, mc_std, de_mean, de_std):
                     mc_mean[sorted_idx] - mc_std[sorted_idx], 
                     mc_mean[sorted_idx] + mc_std[sorted_idx], 
                     alpha=0.3, color='purple', label='MC ±1σ')
-    ax1.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=12)
-    ax1.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
-    ax1.set_title('MC Dropout: Predictions vs Ground Truth', fontsize=13, fontweight='bold')
-    ax1.legend(fontsize=9, loc='upper left')
+    
+    ax1.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=14)
+    ax1.set_ylabel('Remaining Useful Life (cycles)', fontsize=14)
+    ax1.set_title('MC Dropout: Predictions vs Ground Truth', fontsize=15, fontweight='bold')
+    ax1.legend(fontsize=12, loc='upper left')
     ax1.grid(alpha=0.3)
+    ax1.tick_params(axis='both', which='major', labelsize=12)
 
     # Plot B: Deep Ensemble Predictions
     ax2 = axes[1]
@@ -319,11 +319,12 @@ def plot_uq_predictions(y_test, mc_mean, mc_std, de_mean, de_std):
                     de_mean[sorted_idx] - de_std[sorted_idx], 
                     de_mean[sorted_idx] + de_std[sorted_idx], 
                     alpha=0.3, color='orange', label='Ensemble ±1σ')
-    ax2.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=12)
-    ax2.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
-    ax2.set_title('Deep Ensemble: Predictions vs Ground Truth', fontsize=13, fontweight='bold')
-    ax2.legend(fontsize=9, loc='upper left')
+    
+    ax2.set_xlabel('Test Engines (Sorted by true RUL)', fontsize=14)
+    ax2.set_title('Deep Ensemble: Predictions vs Ground Truth', fontsize=15, fontweight='bold')
+    ax2.legend(fontsize=12, loc='upper left')
     ax2.grid(alpha=0.3)
+    ax2.tick_params(axis='both', which='major', labelsize=12)
     
     plt.tight_layout()
     output_path = os.path.join(OUTPUT_DIR, 'uq_predictions_comparison.png')
@@ -361,7 +362,7 @@ def plot_temporal_trajectory(mc_model, de_ensemble, df_val_raw, X_val, y_val, se
     de_std = np.sqrt(de_var + de_aleatoric_var)
     
     # 4. Plotting
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), sharey=True)
     
     # Plot A: MC Dropout Temporal
     ax1 = axes[0]
@@ -372,11 +373,13 @@ def plot_temporal_trajectory(mc_model, de_ensemble, df_val_raw, X_val, y_val, se
                      mc_mean - (1.96 * mc_std), 
                      mc_mean + (1.96 * mc_std), 
                      color='purple', alpha=0.3, label='95% Confidence Interval')
-    ax1.set_xlabel('Flight Cycle', fontsize=12)
-    ax1.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
-    ax1.set_title(f'MC Dropout: Temporal Trajectory (Engine {engine_id})', fontsize=13, fontweight='bold')
-    ax1.legend(loc='upper right', fontsize=10)
+                     
+    ax1.set_xlabel('Flight Cycle', fontsize=14)
+    ax1.set_ylabel('Remaining Useful Life (cycles)', fontsize=14)
+    ax1.set_title(f'MC Dropout: Temporal Trajectory (Engine {engine_id})', fontsize=15, fontweight='bold')
+    ax1.legend(loc='upper right', fontsize=12)
     ax1.grid(alpha=0.3)
+    ax1.tick_params(axis='both', which='major', labelsize=12)
     
     # Plot B: Deep Ensemble Temporal
     ax2 = axes[1]
@@ -386,11 +389,12 @@ def plot_temporal_trajectory(mc_model, de_ensemble, df_val_raw, X_val, y_val, se
                      de_mean - (1.96 * de_std), 
                      de_mean + (1.96 * de_std), 
                      color='orange', alpha=0.3, label='95% Confidence Interval')
-    ax2.set_xlabel('Flight Cycle', fontsize=12)
-    ax2.set_ylabel('Remaining Useful Life (cycles)', fontsize=12)
-    ax2.set_title(f'Deep Ensemble: Temporal Trajectory (Engine {engine_id})', fontsize=13, fontweight='bold')
-    ax2.legend(loc='upper right', fontsize=10)
+                     
+    ax2.set_xlabel('Flight Cycle', fontsize=14)
+    ax2.set_title(f'Deep Ensemble: Temporal Trajectory (Engine {engine_id})', fontsize=15, fontweight='bold')
+    ax2.legend(loc='upper right', fontsize=12)
     ax2.grid(alpha=0.3)
+    ax2.tick_params(axis='both', which='major', labelsize=12)
     
     plt.tight_layout()
     output_path = os.path.join(OUTPUT_DIR, 'uq_temporal_trajectory.png')
@@ -450,7 +454,7 @@ def main():
     # ====================================================================
     # METHOD 2: DEEP ENSEMBLE
     # ====================================================================
-    GENERATE_ELBOW_PLOT = True  # Set to True to generate the Deep Ensemble elbow plot
+    GENERATE_ELBOW_PLOT = False  # Set to True to generate the Deep Ensemble elbow plot
 
     if GENERATE_ELBOW_PLOT:
         # 1. Train the maximum amount of models required for the elbow plot
