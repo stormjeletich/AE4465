@@ -25,8 +25,7 @@ import seaborn as sns
 from typing import Tuple, Dict, List, Any
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import Ridge
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.inspection import permutation_importance
 import warnings
@@ -46,7 +45,7 @@ TEST_SIZE = 0.2
 VALIDATION_SIZE = 0.2
 
 # Sensor and operational condition columns to use for modeling
-# NOTE: We exclude 'engine' and 'cycle' columns as per instructions
+#  We exclude 'engine' and 'cycle' columns as per instructions
 # (they would leak information about RUL in this dataset)
 FEATURE_COLUMNS_TO_EXCLUDE = ['engine', 'cycle']
 
@@ -411,115 +410,6 @@ def train_random_forest(X_train: np.ndarray, y_train: np.ndarray,
     return best_rf, metrics
 
 
-def train_gradient_boosting(X_train: np.ndarray, y_train: np.ndarray,
-                           X_val: np.ndarray, y_val: np.ndarray) -> Tuple[GradientBoostingRegressor, Dict[str, float]]:
-    """
-    Train a Gradient Boosting regressor with hyperparameter tuning.
-    
-    Gradient Boosting is chosen because:
-    - Ensemble of weak learners with sequential improvement
-    - Excellent at capturing complex non-linear patterns
-    - Often achieves state-of-the-art results
-    - Provides feature importance rankings
-    
-    Hyperparameters tuned:
-    - n_estimators: number of boosting stages
-    - learning_rate: step size for each boosting stage
-    - max_depth: maximum tree depth
-    - min_samples_split / min_samples_leaf: regularization
-    """
-    print("\n" + "="*80)
-    print("SECTION 4B: GRADIENT BOOSTING MODEL")
-    print("="*80)
-    
-    print("\n4B.1 Hyperparameter Grid Search")
-    
-    # Define hyperparameter grid
-    param_grid = {
-        'n_estimators': [100, 200, 300],
-        'learning_rate': [0.01, 0.05, 0.1],
-        'max_depth': [3, 5, 7],
-        'min_samples_split': [2, 5],
-        'min_samples_leaf': [1, 2]
-    }
-    
-    # Create base estimator
-    gb_base = GradientBoostingRegressor(random_state=RANDOM_STATE)
-    
-    # Grid search with cross-validation on training set
-    gs_gb = GridSearchCV(gb_base, param_grid, cv=3, scoring='neg_mean_squared_error', n_jobs=-1)
-    gs_gb.fit(X_train, y_train)
-    
-    best_gb = gs_gb.best_estimator_
-    print(f"Best hyperparameters: {gs_gb.best_params_}")
-    
-    # Evaluate on validation set
-    y_val_pred = best_gb.predict(X_val)
-    rmse_val = np.sqrt(mean_squared_error(y_val, y_val_pred))
-    mae_val = mean_absolute_error(y_val, y_val_pred)
-    r2_val = r2_score(y_val, y_val_pred)
-    
-    print(f"\nValidation Performance:")
-    print(f"  RMSE: {rmse_val:.3f} cycles")
-    print(f"  MAE:  {mae_val:.3f} cycles")
-    print(f"  R²:   {r2_val:.3f}")
-    
-    metrics = {'RMSE': rmse_val, 'MAE': mae_val, 'R2': r2_val}
-    
-    return best_gb, metrics
-
-
-def train_ridge_regression(X_train: np.ndarray, y_train: np.ndarray,
-                          X_val: np.ndarray, y_val: np.ndarray) -> Tuple[Ridge, Dict[str, float]]:
-    """
-    Train a Ridge regression model (linear baseline for comparison).
-    
-    Ridge regression is included as a baseline because:
-    - Simple, interpretable model
-    - Provides a reference point for comparison
-    - Uses L2 regularization to prevent overfitting
-    - Fast to train and predict
-    
-    Hyperparameter tuned:
-    - alpha: regularization strength
-    """
-    print("\n" + "="*80)
-    print("SECTION 4C: RIDGE REGRESSION MODEL (BASELINE)")
-    print("="*80)
-    
-    print("\n4C.1 Hyperparameter Grid Search")
-    
-    # Define hyperparameter grid
-    param_grid = {
-        'alpha': [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]
-    }
-    
-    # Create base estimator
-    ridge_base = Ridge(random_state=RANDOM_STATE)
-    
-    # Grid search with cross-validation
-    gs_ridge = GridSearchCV(ridge_base, param_grid, cv=3, scoring='neg_mean_squared_error')
-    gs_ridge.fit(X_train, y_train)
-    
-    best_ridge = gs_ridge.best_estimator_
-    print(f"Best hyperparameters: {gs_ridge.best_params_}")
-    
-    # Evaluate on validation set
-    y_val_pred = best_ridge.predict(X_val)
-    rmse_val = np.sqrt(mean_squared_error(y_val, y_val_pred))
-    mae_val = mean_absolute_error(y_val, y_val_pred)
-    r2_val = r2_score(y_val, y_val_pred)
-    
-    print(f"\nValidation Performance:")
-    print(f"  RMSE: {rmse_val:.3f} cycles")
-    print(f"  MAE:  {mae_val:.3f} cycles")
-    print(f"  R²:   {r2_val:.3f}")
-    
-    metrics = {'RMSE': rmse_val, 'MAE': mae_val, 'R2': r2_val}
-    
-    return best_ridge, metrics
-
-
 # =============================================================================
 # SECTION 5: MODEL EVALUATION & COMPARISON
 # =============================================================================
@@ -788,7 +678,7 @@ def main():
     # =========================================================================
     # STEP 1: Load Data
     # =========================================================================
-    print("\n📊 Loading data...")
+    print("\n Loading data...")
     df_train, df_test = load_data()
     print(f"✓ Loaded training set: {df_train.shape}")
     print(f"✓ Loaded test set: {df_test.shape}")
@@ -815,13 +705,9 @@ def main():
     # STEP 5: Model Training & Hyperparameter Tuning (Section 4)
     # =========================================================================
     rf_model, rf_metrics = train_random_forest(X_train, y_train, X_val, y_val)
-    gb_model, gb_metrics = train_gradient_boosting(X_train, y_train, X_val, y_val)
-    ridge_model, ridge_metrics = train_ridge_regression(X_train, y_train, X_val, y_val)
-    
+
     models = {
-        'Random Forest': rf_model,
-        'Gradient Boosting': gb_model,
-        'Ridge Regression': ridge_model
+        'Random Forest': rf_model
     }
     
     # =========================================================================
@@ -855,8 +741,8 @@ def main():
     print("SUMMARY & CONCLUSIONS")
     print("="*80)
     
-    print("\n📈 Best Model: Gradient Boosting Regressor")
-    print(f"   - Hyperparameters: {gb_model.get_params()}")
+    print("\n Best Model: Random Forest Regressor")
+    print(f"   - Hyperparameters: {rf_model.get_params()}")
     
     # Get test performance
     y_test_pred = best_model.predict(df_test_features.values)
@@ -870,12 +756,10 @@ def main():
     final_rmse = np.sqrt(mean_squared_error(rul_truth, final_predictions))
     final_mae = mean_absolute_error(rul_truth, final_predictions)
     
-    print(f"\n📊 Final Test Set Performance (100 engines):")
+    print(f"\n Final Test Set Performance (100 engines):")
     print(f"   - RMSE: {final_rmse:.3f} cycles")
     print(f"   - MAE:  {final_mae:.3f} cycles")
-    print(f"   - Status: {'✓ PASSED' if final_rmse <= 20 else '✗ NEEDS IMPROVEMENT'} (target: RMSE ≤ 20)")
-    
-    print("\n✓ All analyses complete!")
+    print(f"   - Status: {'PASSED' if final_rmse <= 20 else '✗ NEEDS IMPROVEMENT'} (target: RMSE ≤ 20)")
     print(f"✓ Results saved to '{OUTPUT_DIR}/' directory")
     
     return best_model

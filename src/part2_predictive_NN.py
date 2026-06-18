@@ -353,81 +353,9 @@ def plot_hparam_search(csv_path: str):
     # plt.show()
 
 
-# =============================================================================
-# 7. MAIN
-# =============================================================================
-
-if __name__ == "__main__":
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    df_train_full, df_test = load_data()
-    df_train_raw, df_val_raw = split_train_val_engines(df_train_full)
-    print(f"Train engines: {df_train_raw['engine'].nunique()}  "
-          f"Val engines: {df_val_raw['engine'].nunique()}  "
-          f"Test engines: {df_test['engine'].nunique()}")
-
-    #Step 1: hyperparameter search 
-    best_cfg = tune_hyperparameters(df_train_raw, df_val_raw, df_test)
-
-    #Step 2: full training with best configuratoin
-    print(f"\n{'='*55}")
-    print(f"FINAL TRAINING  with best config: {best_cfg}")
-    print(f"{'='*55}")
-
-    # Re-prepare data with the best seq_len and all engines (train+val) for final training
-    X_tr, y_tr, X_val, y_val, X_test, num_features = preprocess_and_window(
-        df_train_raw, df_val_raw, df_test, seq_len=best_cfg['seq_len'], verbose=True
-    )
-    train_loader = DataLoader(CMAPSSDataset(X_tr,  y_tr),  batch_size=BATCH_SIZE, shuffle=True)
-    val_loader   = DataLoader(CMAPSSDataset(X_val, y_val), batch_size=BATCH_SIZE, shuffle=False)
-
-    model = RULPredictor(num_features, best_cfg['hidden_size'],
-                         best_cfg['num_layers'], best_cfg['dropout']).to(device)
-    
-    # Start timer for comparison with Random Forest baseline
-    lstm_start = time.time()
-    model, history, _ = train(model, train_loader, val_loader,
-                               n_epochs=FINAL_EPOCHS, verbose=True)
-    lstm_time = time.time() - lstm_start
-
-    plot_training_curves(history)
-    plot_hparam_search(os.path.join(OUTPUT_DIR, 'hparam_search.csv'))
-
-    # Step 3: test evaluation
-    try:
-        rul_path = 'CMAPSSData/RUL_FD001.txt'
-        if not os.path.exists(rul_path):
-            rul_path = '../CMAPSSData/RUL_FD001.txt'
-        rul_truth = np.minimum(
-            pd.read_csv(rul_path, sep=r'\s+', header=None, names=['RUL'])['RUL'].values,
-            RUL_CAP
-        )
-    except FileNotFoundError:
-        print("Could not find RUL_FD001.txt.")
-        exit(1)
-
-    preds, rmse, mae = evaluate(model, X_test, rul_truth)
-    plot_rul_predictions(rul_truth, preds)
-
-    # Random Forest baseline (same preprocessing, last timestep only)
-    # Used as a comparison and is imported from predictive.py to avoid code duplication. 
-    print(f"\n{'='*55}")
-    print("RANDOM FOREST BASELINE  (last timestep of each window)")
-    print(f"{'='*55}")
-    X_tr_flat   = X_tr[:, -1, :]    # (n_windows, 14) — current sensor reading
-    X_val_flat  = X_val[:, -1, :]
-    X_test_flat = X_test[:, -1, :]
-
-
-    rf_start = time.time()
-    rf_model, _ = train_random_forest(X_tr_flat, y_tr, X_val_flat, y_val)
-    rf_preds     = np.clip(rf_model.predict(X_test_flat), 0, RUL_CAP)
-    rf_rmse      = np.sqrt(mean_squared_error(rul_truth, rf_preds))
-    rf_mae       = mean_absolute_error(rul_truth, rf_preds)
-    rf_time      = time.time() - rf_start
-    print(f"\nRandom Forest — Test RMSE: {rf_rmse:.3f}   MAE: {rf_mae:.3f}")
-
-    # Comparison plot & summary table 
+def plot_model_comparison(rul_truth: np.ndarray, preds: np.ndarray, rf_preds: np.ndarray,
+                           rmse: float, mae: float, rf_rmse: float, rf_mae: float):
+    """Side-by-side prediction overlay and RMSE/MAE bar chart, LSTM vs Random Forest."""
     sort_idx = np.argsort(rul_truth)
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
@@ -463,7 +391,101 @@ if __name__ == "__main__":
     plt.savefig(os.path.join(OUTPUT_DIR, 'model_comparison.png'), dpi=200)
     # plt.show()
 
-    # Save summary
+
+# =============================================================================
+# 7. RANDOM FOREST BASELINE
+# =============================================================================
+
+def run_random_forest_baseline(X_tr, y_tr, X_val, y_val, X_test, rul_truth):
+    """
+    Random Forest baseline (same preprocessing, last timestep only).
+    Used as a comparison and is imported from predictive.py to avoid code duplication.
+    """
+    print(f"\n{'='*55}")
+    print("RANDOM FOREST BASELINE  (last timestep of each window)")
+    print(f"{'='*55}")
+    X_tr_flat   = X_tr[:, -1, :]    # (n_windows, 14) — current sensor reading
+    X_val_flat  = X_val[:, -1, :]
+    X_test_flat = X_test[:, -1, :]
+
+    rf_start = time.time()
+    rf_model, _ = train_random_forest(X_tr_flat, y_tr, X_val_flat, y_val)
+    rf_preds     = np.clip(rf_model.predict(X_test_flat), 0, RUL_CAP)
+    rf_rmse      = np.sqrt(mean_squared_error(rul_truth, rf_preds))
+    rf_mae       = mean_absolute_error(rul_truth, rf_preds)
+    rf_time      = time.time() - rf_start
+    print(f"\nRandom Forest — Test RMSE: {rf_rmse:.3f}   MAE: {rf_mae:.3f}")
+
+    return rf_model, rf_preds, rf_rmse, rf_mae, rf_time
+
+
+# =============================================================================
+# 8. MAIN
+# =============================================================================
+
+def load_rul_truth():
+    try:
+        rul_path = 'CMAPSSData/RUL_FD001.txt'
+        if not os.path.exists(rul_path):
+            rul_path = '../CMAPSSData/RUL_FD001.txt'
+        return np.minimum(
+            pd.read_csv(rul_path, sep=r'\s+', header=None, names=['RUL'])['RUL'].values,
+            RUL_CAP
+        )
+    except FileNotFoundError:
+        print("Could not find RUL_FD001.txt.")
+        exit(1)
+
+
+def main():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    df_train_full, df_test = load_data()
+    df_train_raw, df_val_raw = split_train_val_engines(df_train_full)
+    print(f"Train engines: {df_train_raw['engine'].nunique()}  "
+          f"Val engines: {df_val_raw['engine'].nunique()}  "
+          f"Test engines: {df_test['engine'].nunique()}")
+
+    #Step 1: hyperparameter search
+    best_cfg = tune_hyperparameters(df_train_raw, df_val_raw, df_test)
+
+    #Step 2: full training with best configuratoin
+    print(f"\n{'='*55}")
+    print(f"FINAL TRAINING  with best config: {best_cfg}")
+    print(f"{'='*55}")
+
+    # Re-prepare data with the best seq_len and all engines (train+val) for final training
+    X_tr, y_tr, X_val, y_val, X_test, num_features = preprocess_and_window(
+        df_train_raw, df_val_raw, df_test, seq_len=best_cfg['seq_len'], verbose=True
+    )
+    train_loader = DataLoader(CMAPSSDataset(X_tr,  y_tr),  batch_size=BATCH_SIZE, shuffle=True)
+    val_loader   = DataLoader(CMAPSSDataset(X_val, y_val), batch_size=BATCH_SIZE, shuffle=False)
+
+    model = RULPredictor(num_features, best_cfg['hidden_size'],
+                         best_cfg['num_layers'], best_cfg['dropout']).to(device)
+
+    # Start timer for comparison with Random Forest baseline
+    lstm_start = time.time()
+    model, history, _ = train(model, train_loader, val_loader,
+                               n_epochs=FINAL_EPOCHS, verbose=True)
+    lstm_time = time.time() - lstm_start
+
+    plot_training_curves(history)
+    plot_hparam_search(os.path.join(OUTPUT_DIR, 'hparam_search.csv'))
+
+    # Step 3: test evaluation
+    rul_truth = load_rul_truth()
+    preds, rmse, mae = evaluate(model, X_test, rul_truth)
+    plot_rul_predictions(rul_truth, preds)
+
+    # Step 4: Random Forest baseline for comparison
+    rf_model, rf_preds, rf_rmse, rf_mae, rf_time = run_random_forest_baseline(
+        X_tr, y_tr, X_val, y_val, X_test, rul_truth
+    )
+
+    # Step 5: comparison plot & summary table
+    plot_model_comparison(rul_truth, preds, rf_preds, rmse, mae, rf_rmse, rf_mae)
+
     summary = pd.DataFrame([
         {**best_cfg, 'model': 'LSTM',          'test_rmse': rmse,    'test_mae': mae},
         {            'model': 'Random Forest',  'test_rmse': rf_rmse, 'test_mae': rf_mae},
@@ -473,6 +495,5 @@ if __name__ == "__main__":
     print(f"\nTraining time — LSTM: {lstm_time:.1f}s   RF: {rf_time:.1f}s")
 
 
-    # Check for the Random forest
-
-  
+if __name__ == "__main__":
+    main()
