@@ -5,13 +5,6 @@ Code for reading in the C-MAPSS data (FD001)
 import os
 import pandas as pd
 
-"""
-For your final RUL prediction model (part 2 of the assignment), do NOT use the engine number or cycle number as input for your model.
-The lifetimes of the engine in this simulated dataset is relatively short compared to the life time of real-life engines. 
-The cycle number therefore gives more information about the RUL than would be the case in real life.
-You do need the cycle number and engine number to calculate the RUL. 
-"""
-
 def load_data():
     index_names = ['engine', 'cycle'] 
 
