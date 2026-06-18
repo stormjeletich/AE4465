@@ -411,12 +411,12 @@ def train_random_forest(X_train: np.ndarray, y_train: np.ndarray,
 
 
 # =============================================================================
-# SECTION 5: MODEL EVALUATION & COMPARISON
+# SECTION 5: MODEL EVALUATION 
 # =============================================================================
 
 def evaluate_models(models: Dict[str, Any], X_test: np.ndarray, y_test: np.ndarray) -> pd.DataFrame:
     """
-    Evaluate all trained models on the held-out test set.
+    Evaluate trained model on the held-out test set.
     
     Parameters:
     -----------
@@ -430,7 +430,6 @@ def evaluate_models(models: Dict[str, Any], X_test: np.ndarray, y_test: np.ndarr
     Returns:
     --------
     results_df : pd.DataFrame
-        DataFrame with test set metrics for each model
     """
     print("\n" + "="*80)
     print("SECTION 5: MODEL EVALUATION (TEST SET)")
@@ -459,7 +458,7 @@ def evaluate_models(models: Dict[str, Any], X_test: np.ndarray, y_test: np.ndarr
     
     results_df = pd.DataFrame(results)
     print("\n" + "-"*80)
-    print("MODEL COMPARISON SUMMARY")
+    print("MODEL  SUMMARY")
     print("-"*80)
     print(results_df.to_string(index=False))
     
@@ -468,7 +467,7 @@ def evaluate_models(models: Dict[str, Any], X_test: np.ndarray, y_test: np.ndarr
 
 def plot_predictions_vs_actual(models: Dict[str, Any], X_test: np.ndarray, y_test: np.ndarray) -> None:
     """
-    Create scatter plots of predicted vs actual RUL for all models.
+    Create scatter plots of predicted vs actual RUL for the model.
     """
     n_models = len(models)
     fig, axes = plt.subplots(1, n_models, figsize=(5*n_models, 5))
@@ -500,7 +499,7 @@ def plot_predictions_vs_actual(models: Dict[str, Any], X_test: np.ndarray, y_tes
 
 def plot_residuals(models: Dict[str, Any], X_test: np.ndarray, y_test: np.ndarray) -> None:
     """
-    Create residual plots for all models to diagnose model fit.
+    Create residual plots for the model to diagnose model fit.
     """
     n_models = len(models)
     fig, axes = plt.subplots(1, n_models, figsize=(5*n_models, 5))
@@ -532,8 +531,7 @@ def plot_residuals(models: Dict[str, Any], X_test: np.ndarray, y_test: np.ndarra
 
 def plot_feature_importance(models: Dict[str, Any], feature_names: List[str]) -> None:
     """
-    Plot feature importance for tree-based models.
-    
+    Plot feature importance for Random Forest model.
     This helps understand which sensors/features are most important for
     predicting RUL, which could inform sensor maintenance strategies.
     """
