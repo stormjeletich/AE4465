@@ -409,7 +409,7 @@ def run_random_forest_baseline(X_tr, y_tr, X_val, y_val, X_test, rul_truth):
     X_test_flat = X_test[:, -1, :]
 
     rf_start = time.time()
-    rf_model, _ = train_random_forest(X_tr_flat, y_tr, X_val_flat, y_val)
+    rf_model, _ = train_random_forest(X_tr_flat, y_tr, X_val_flat, y_val, random_state=42)
     rf_preds     = np.clip(rf_model.predict(X_test_flat), 0, RUL_CAP)
     rf_rmse      = np.sqrt(mean_squared_error(rul_truth, rf_preds))
     rf_mae       = mean_absolute_error(rul_truth, rf_preds)

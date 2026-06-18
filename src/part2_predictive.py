@@ -336,12 +336,12 @@ def split_data_by_engine(X: np.ndarray, y: np.ndarray, engine_ids: np.ndarray,
     return X_train, y_train, X_val, y_val, X_test, y_test
 
 
-# =============================================================================
+# ==================================================6===========================
 # SECTION 4: MODEL TRAINING & HYPERPARAMETER TUNING
 # =============================================================================
 
 def train_random_forest(X_train: np.ndarray, y_train: np.ndarray, 
-                        X_val: np.ndarray, y_val: np.ndarray) -> Tuple[RandomForestRegressor, Dict[str, float]]:
+                        X_val: np.ndarray, y_val: np.ndarray, random_state: int = 42) -> Tuple[RandomForestRegressor, Dict[str, float]]:
     """
     Train a Random Forest regressor with hyperparameter tuning.
   
@@ -353,10 +353,10 @@ def train_random_forest(X_train: np.ndarray, y_train: np.ndarray,
     """
 
     print("\n" + "="*80)
-    print("SECTION 4A: RANDOM FOREST MODEL")
+    print("SECTION 4: RANDOM FOREST MODEL")
     print("="*80)
     
-    print("\n4A.1 Hyperparameter Grid Search")
+    print("\n4 Hyperparameter Grid Search")
     
     # Define hyperparameter grid
     param_grid = {
@@ -545,7 +545,7 @@ def predict_test_engines(best_model: Any, df_test: pd.DataFrame, df_test_feature
                         rul_test_file: str) -> None:
     """
     Make RUL predictions for all test engines at their final cycle.
-    
+
     Parameters:
     -----------
     best_model : Any
