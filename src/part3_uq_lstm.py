@@ -17,7 +17,7 @@ from import_data import load_data
 #==========================
 # configuration
 #==========================
-OUTPUT_DIR = "Output/part3copy"
+OUTPUT_DIR = "Output/part3"
 RUL_CAP = 125
 MC_DROPOUT_PASSES = 50
 FINAL_EPOCHS = 150
