@@ -1,5 +1,5 @@
 # =============================================================================
-# PART 2: PREDICTIVE MAINTENANCE - RUL PREDICTION MODEL
+# PART 2: PREDICTIVE MAINTENANCE - RUL Random Forest PREDICTION MODEL
 # =============================================================================
 # 
 # This module implements a machine learning-based Remaining Useful Life (RUL)
@@ -10,7 +10,7 @@
 # 2. Data Preprocessing: Normalize features, handle outliers, engineer features
 # 3. RUL Labeling: Calculate RUL for training data and apply 125-cycle cap
 # 4. Data Splitting: Split by engine to prevent data leakage
-# 5. Model Selection & Training: Train multiple ML models with hyperparameter tuning
+# 5. Model Selection & Training: Train Random Forest model with hyperparameter tuning
 # 6. Evaluation: Assess performance on validation set
 # 7. Prediction: Make RUL predictions on test set
 # 8. Results Visualization: Plot performance metrics and comparisons
@@ -45,8 +45,7 @@ TEST_SIZE = 0.2
 VALIDATION_SIZE = 0.2
 
 # Sensor and operational condition columns to use for modeling
-#  We exclude 'engine' and 'cycle' columns as per instructions
-# (they would leak information about RUL in this dataset)
+#  We exclude 'engine' and 'cycle' columns to prevent information leakage.
 FEATURE_COLUMNS_TO_EXCLUDE = ['engine', 'cycle']
 
 # Random seed for reproducibility
@@ -60,11 +59,6 @@ np.random.seed(RANDOM_STATE)
 def explore_data(df_train: pd.DataFrame, df_test: pd.DataFrame) -> None:
     """
     Perform initial data exploration and analysis.
-    
-    This section addresses requirement: 
-    "Describe the data in this dataset. Based on this initial data exploration,
-    are there any sensors you would disregard?"
-    
     Analysis includes:
     - Shape and missing values
     - Statistical summary (mean, std, min, max)
@@ -173,7 +167,7 @@ def preprocess_data(df_train: pd.DataFrame, df_test: pd.DataFrame) -> Tuple[pd.D
     Preprocess training and test data for machine learning.
     
     Steps:
-    1. Remove engine and cycle columns (as per instructions to prevent information leakage)
+    1. Remove engine and cycle columns
     2. Remove any constant-variance features
     3. Standardize all features (zero mean, unit variance)
     
@@ -191,7 +185,7 @@ def preprocess_data(df_train: pd.DataFrame, df_test: pd.DataFrame) -> Tuple[pd.D
     df_test_processed : pd.DataFrame
         Preprocessed test data with scaled features
     scaler : StandardScaler
-        Fitted scaler object (for reference/reproducibility)
+        Fitted scaler object 
     """
     print("\n" + "="*80)
     print("SECTION 2: DATA PREPROCESSING")
@@ -284,13 +278,7 @@ def split_data_by_engine(X: np.ndarray, y: np.ndarray, engine_ids: np.ndarray,
                         train_ratio: float = 0.6, val_ratio: float = 0.2) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Split data into train, validation, and test sets while ensuring engines are not mixed.
-    
-    CRITICAL: To prevent data leakage, we must ensure that the same engine does not
-    appear in both training and validation/test sets. This is important because:
-    - Engines have unique degradation patterns
-    - Models might memorize engine-specific signatures
-    - In practice, we would not have access to the same engine in validation/test
-    
+
     Parameters:
     -----------
     X : np.ndarray
@@ -356,20 +344,14 @@ def train_random_forest(X_train: np.ndarray, y_train: np.ndarray,
                         X_val: np.ndarray, y_val: np.ndarray) -> Tuple[RandomForestRegressor, Dict[str, float]]:
     """
     Train a Random Forest regressor with hyperparameter tuning.
-    
-    Random Forest is chosen because:
-    - Non-parametric: no assumptions about feature distributions
-    - Handles non-linear relationships well
-    - Robust to outliers
-    - Provides feature importance rankings
-    - Good for high-dimensional data
-    
+  
     Hyperparameters tuned:
     - n_estimators: number of trees (more trees = better but slower)
     - max_depth: maximum tree depth (controls complexity/overfitting)
     - min_samples_split: minimum samples required to split (regularization)
     - min_samples_leaf: minimum samples in leaf (regularization)
     """
+
     print("\n" + "="*80)
     print("SECTION 4A: RANDOM FOREST MODEL")
     print("="*80)
@@ -532,8 +514,6 @@ def plot_residuals(models: Dict[str, Any], X_test: np.ndarray, y_test: np.ndarra
 def plot_feature_importance(models: Dict[str, Any], feature_names: List[str]) -> None:
     """
     Plot feature importance for Random Forest model.
-    This helps understand which sensors/features are most important for
-    predicting RUL, which could inform sensor maintenance strategies.
     """
     n_models = len(models)
     fig, axes = plt.subplots(1, n_models, figsize=(6*n_models, 5))
@@ -565,11 +545,6 @@ def predict_test_engines(best_model: Any, df_test: pd.DataFrame, df_test_feature
                         rul_test_file: str) -> None:
     """
     Make RUL predictions for all test engines at their final cycle.
-    
-    According to assignment requirements:
-    - Make exactly 100 predictions (one per test engine)
-    - Use the final cycle of each test engine
-    - Compare with ground truth RUL values
     
     Parameters:
     -----------
