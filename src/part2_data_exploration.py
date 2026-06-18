@@ -1,5 +1,5 @@
 """
-Part 2 — Data Exploration (Assignment Question 1)
+Part 2 — Data Exploration & Visualization
 Generates four sets of figures that together justify:
   1. Which sensors are discarded and why (zero variance)
   2. Which remaining sensors are informative (correlation with RUL)
@@ -11,9 +11,6 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-from sklearn.preprocessing import StandardScaler
-
 from import_data import load_data
 
 OUTPUT_DIR  = os.path.join("Output", "part2_exploration")
