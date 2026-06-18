@@ -1,3 +1,4 @@
+from ast import If
 import os
 import numpy as np
 import pandas as pd
@@ -19,10 +20,12 @@ from import_data import load_data
 #==========================
 OUTPUT_DIR = "Output/part3"
 RUL_CAP = 125
-MC_DROPOUT_PASSES = 50
+MC_DROPOUT_PASSES = 40
 FINAL_EPOCHS = 150
-EPOCHS_DE = 150 
-N_DE_MODELS = 10  # Number of models in the Deep Ensemble
+EPOCHS_DE = 100 
+N_DE_MODELS = 6  # Number of models in the Deep Ensemble
+MAX_DE_MODELS = 12  # For DE elbow method
+MAX_MC_PASSES = 100  # For MC elbow method
 
 # The winning configuration from Part 2
 BEST_CFG = {'seq_len': 50, 'hidden_size': 64, 'num_layers': 1, 'dropout': 0.2}
@@ -64,6 +67,53 @@ def mc_dropout_lstm_predict(model, X_test_windows, num_passes=MC_DROPOUT_PASSES,
     
     return y_mean, y_var
 
+
+def plot_mc_dropout_elbow(mc_model, X_val, y_val, max_passes=100, step=5, MC_DROPOUT_PASSES=MC_DROPOUT_PASSES):
+    """
+    Evaluates the stabilization of RMSE to find the 'elbow'
+    for the optimal number of MC Dropout passes.
+    """
+    print(f"\nCalculating MC Dropout Elbow (RMSE) up to {max_passes} passes...")
+    
+    m_values = np.arange(2, max_passes + 1, step)
+    rmse_values = []
+    
+    mc_model.train()
+    X_tensor = torch.FloatTensor(X_val).to(device)
+    
+    with torch.no_grad():
+        all_passes = []
+        for _ in range(max_passes):
+            pred = mc_model(X_tensor).cpu().numpy().flatten()
+            all_passes.append(pred)
+        all_passes = np.array(all_passes)
+        
+    for m in m_values:
+        # Get the first 'm' passes
+        subset_passes = all_passes[:m, :]
+        
+        # Calculate the mean prediction across these passes
+        subset_mean = np.mean(subset_passes, axis=0)
+        
+        # Calculate RMSE against the true validation labels
+        rmse_at_m = np.sqrt(mean_squared_error(y_val, subset_mean))
+        rmse_values.append(rmse_at_m)
+        
+    plt.figure(figsize=(8, 5))
+    plt.plot(m_values, rmse_values, 'o-', color='purple', linewidth=2)
+    plt.axvline(x=MC_DROPOUT_PASSES, color='r', linestyle='--', label=f'Current Setting (M={MC_DROPOUT_PASSES})')
+    
+    plt.xlabel('Number of Forward Passes (M)', fontsize=12)
+    plt.ylabel('Validation RMSE (cycles)', fontsize=12)
+    plt.title('MC Dropout Elbow Method: Predictive Stabilization', fontsize=13, fontweight='bold')
+    plt.grid(alpha=0.3)
+    plt.legend()
+    
+    plt.tight_layout()
+    output_path = os.path.join(OUTPUT_DIR, 'mc_dropout_elbow.png')
+    plt.savefig(output_path, dpi=300)
+    print(f"Elbow plot saved successfully to: {output_path}")
+    
 
 #=========================================
 # Ensemble of LSTMs
@@ -131,6 +181,57 @@ def ensemble_lstm_predict(ensemble, X_test_windows, batch_size=64):
     y_var = np.var(all_model_preds, axis=0)
     
     return y_mean, y_var
+
+
+def plot_de_elbow(de_ensemble, X_val, y_val, current_models=N_DE_MODELS):
+    """
+    Evaluates the stabilization of RMSE to find the 'elbow'
+    for the optimal number of Deep Ensemble models.
+    """
+    max_models = len(de_ensemble)
+    print(f"\nCalculating Deep Ensemble Elbow (RMSE) up to {max_models} models...")
+    
+    b_values = np.arange(2, max_models + 1)
+    rmse_values = []
+    
+    X_tensor = torch.FloatTensor(X_val).to(device)
+    
+    all_model_preds = []
+    with torch.no_grad():
+        for model in de_ensemble:
+            model.eval()
+            pred = model(X_tensor).cpu().numpy().flatten()
+            all_model_preds.append(pred)
+            
+    all_model_preds = np.array(all_model_preds)
+    
+    for b in b_values:
+        # Get the predictions from the first 'b' models
+        subset_preds = all_model_preds[:b, :]
+        
+        # Calculate the ensemble mean
+        subset_mean = np.mean(subset_preds, axis=0)
+        
+        # Calculate RMSE against the true validation labels
+        rmse_at_b = np.sqrt(mean_squared_error(y_val, subset_mean))
+        rmse_values.append(rmse_at_b)
+        
+    plt.figure(figsize=(8, 5))
+    plt.plot(b_values, rmse_values, 's-', color='orange', linewidth=2)
+    
+    if current_models <= max_models:
+        plt.axvline(x=current_models, color='r', linestyle='--', label=f'Current Setting (B={current_models})')
+    
+    plt.xlabel('Number of Ensemble Members (B)', fontsize=12)
+    plt.ylabel('Validation RMSE (cycles)', fontsize=12)
+    plt.title('Deep Ensemble Elbow Method: Predictive Stabilization', fontsize=13, fontweight='bold')
+    plt.grid(alpha=0.3)
+    plt.legend()
+        
+    plt.tight_layout()
+    output_path = os.path.join(OUTPUT_DIR, 'de_elbow.png')
+    plt.savefig(output_path, dpi=300)
+    print(f"Deep Ensemble Elbow plot saved successfully to: {output_path}")
 
 
 # ============================================================================
@@ -334,6 +435,8 @@ def main():
     mc_model, _, _ = train(mc_model, tr_loader, vl_loader, n_epochs=FINAL_EPOCHS, verbose=True)
     
     mc_mean, mc_var = mc_dropout_lstm_predict(mc_model, X_test, num_passes=MC_DROPOUT_PASSES)
+
+    plot_mc_dropout_elbow(mc_model, X_val, y_val, max_passes=MAX_MC_PASSES, step=5, MC_DROPOUT_PASSES=MC_DROPOUT_PASSES)
     
     # Add Aleatoric Noise
     mc_train_mean, _ = mc_dropout_lstm_predict(mc_model, X_tr, num_passes=MC_DROPOUT_PASSES)
@@ -347,9 +450,21 @@ def main():
     # ====================================================================
     # METHOD 2: DEEP ENSEMBLE
     # ====================================================================
-    de_ensemble = train_lstm_ensemble(X_tr, y_tr, X_val, y_val, BEST_CFG, num_features, n_models=N_DE_MODELS)
-    de_mean, de_var = ensemble_lstm_predict(de_ensemble, X_test)
+    GENERATE_ELBOW_PLOT = True  # Set to True to generate the Deep Ensemble elbow plot
+
+    if GENERATE_ELBOW_PLOT:
+        # 1. Train the maximum amount of models required for the elbow plot
+        de_ensemble_full = train_lstm_ensemble(X_tr, y_tr, X_val, y_val, BEST_CFG, num_features, n_models=MAX_DE_MODELS)
+        # 2. Generate the RMSE elbow plot using the full 15-model ensemble
+        plot_de_elbow(de_ensemble_full, X_val, y_val, current_models=N_DE_MODELS)
+        # 3. Slice the ensemble down to your chosen configuration for final evaluation
+        de_ensemble = de_ensemble_full[:N_DE_MODELS]
+    else:
+        # Just train the standard 6 models to save time, skip the elbow plot
+        de_ensemble = train_lstm_ensemble(X_tr, y_tr, X_val, y_val, BEST_CFG, num_features, n_models=N_DE_MODELS)
     
+    de_mean, de_var = ensemble_lstm_predict(de_ensemble, X_test)
+
     # Add Aleatoric Noise
     de_train_mean, _ = ensemble_lstm_predict(de_ensemble, X_tr)
     de_aleatoric_var = mean_squared_error(y_tr, de_train_mean)
