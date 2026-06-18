@@ -22,7 +22,7 @@ OUTPUT_DIR = "Output/part3"
 RUL_CAP = 125
 MC_DROPOUT_PASSES = 40
 FINAL_EPOCHS = 150
-EPOCHS_DE = 150 
+EPOCHS_DE = 150
 N_DE_MODELS = 6  # Number of models in the Deep Ensemble
 MAX_DE_MODELS = 12  # For DE elbow method
 MAX_MC_PASSES = 100  # For MC elbow method
@@ -440,7 +440,9 @@ def main():
     
     mc_mean, mc_var = mc_dropout_lstm_predict(mc_model, X_test, num_passes=MC_DROPOUT_PASSES)
 
-    plot_mc_dropout_elbow(mc_model, X_val, y_val, max_passes=MAX_MC_PASSES, step=5, MC_DROPOUT_PASSES=MC_DROPOUT_PASSES)
+    GENERATE_ELBOW_PLOT_MC = False  # Set to True to generate the MC Dropout elbow plot
+    if GENERATE_ELBOW_PLOT_MC:
+        plot_mc_dropout_elbow(mc_model, X_val, y_val, max_passes=MAX_MC_PASSES, step=5, MC_DROPOUT_PASSES=MC_DROPOUT_PASSES)
     
     # Add Aleatoric Noise
     mc_train_mean, _ = mc_dropout_lstm_predict(mc_model, X_tr, num_passes=MC_DROPOUT_PASSES)
@@ -454,9 +456,9 @@ def main():
     # ====================================================================
     # METHOD 2: DEEP ENSEMBLE
     # ====================================================================
-    GENERATE_ELBOW_PLOT = False  # Set to True to generate the Deep Ensemble elbow plot
+    GENERATE_ELBOW_PLOT_DE = False  # Set to True to generate the Deep Ensemble elbow plot
 
-    if GENERATE_ELBOW_PLOT:
+    if GENERATE_ELBOW_PLOT_DE:
         # 1. Train the maximum amount of models required for the elbow plot
         de_ensemble_full = train_lstm_ensemble(X_tr, y_tr, X_val, y_val, BEST_CFG, num_features, n_models=MAX_DE_MODELS)
         # 2. Generate the RMSE elbow plot using the full 15-model ensemble
