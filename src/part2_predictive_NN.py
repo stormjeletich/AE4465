@@ -18,7 +18,7 @@ from import_data import load_data
 OUTPUT_DIR   = "Output/part2_direct_lstm"
 RUL_CAP      = 125
 BATCH_SIZE   = 64
-TUNE_EPOCHS  = 50    # epochs per candidate during search
+TUNE_EPOCHS  = 25    # epochs per candidate during search
 FINAL_EPOCHS = 150   # epochs for the winning config
 LR           = 1e-3
 TRAIN_RATIO  = 0.8
@@ -32,7 +32,7 @@ SEARCH_SPACE = [
     for dr in [0.2, 0.3]
 ]
 
-
+# This was added after hyperparameter tuning as the the best config had signs of overfitting (train RMSE much lower than val RMSE).
 FORCE_CFG = {'seq_len': 50, 'hidden_size': 64, 'num_layers': 1, 'dropout': 0.2}
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -69,10 +69,10 @@ def preprocess_and_window(df_train: pd.DataFrame,
                            seq_len:  int,
                            verbose:  bool = True):
     """
-    1. Drop zero-variance sensors (fit on train only).
+    1. Drop zero-variance sensors 
     2. StandardScaler fit on train only.
     3. Build sliding-window sequences of length seq_len.
-    4. For test: take the last seq_len cycles per engine (pad if shorter).
+    4. For test: take the last seq_len cycles per engine.
     """
     feature_cols = [c for c in df_train.columns if c not in ['engine', 'cycle']]
     stds = df_train[feature_cols].std()
